@@ -1,0 +1,10 @@
+{
+  "name": "Tridash",
+  "short_name": "Tridash",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FBFCFE",
+  "theme_color": "#0E2A1C",
+  "description": "Every ride, logged. Every driver, checked.",
+  "icons": []
+}
