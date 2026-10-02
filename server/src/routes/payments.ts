@@ -78,7 +78,7 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
     }
 
     const reference = 'TRIDASH-' + ride.id.replace(/[^A-Za-z0-9.-]/g, '-') + '-' + Date.now();
-    const callbackUrl = getRequestOrigin(req) + '/#/trips/' + encodeURIComponent(ride.id) + '?payment=paystack';
+    const callbackUrl = getRequestOrigin(req) + '/trips/' + encodeURIComponent(ride.id) + '?payment=paystack';
 
     const result = await paystackRequest('/transaction/initialize', {
       method: 'POST',

@@ -650,7 +650,7 @@ export const handler = router({
     if (!Number.isInteger(amountNaira) || amountNaira <= 0) return error('Ride fare is invalid', 400);
     try {
       const reference = 'TRIDASH-' + ride.id.replace(/[^A-Za-z0-9.-]/g, '-') + '-' + Date.now();
-      const callbackUrl = requestOrigin(event) + '/#/trips/' + encodeURIComponent(ride.id) + '?payment=paystack';
+      const callbackUrl = requestOrigin(event) + '/trips/' + encodeURIComponent(ride.id) + '?payment=paystack';
       const result = await paystackRequest('/transaction/initialize', { method: 'POST', body: JSON.stringify({ email: user!.email, amount: String(amountNaira * 100), currency: 'NGN', reference, callback_url: callbackUrl, channels: ['card', 'bank', 'ussd', 'qr', 'bank_transfer'], metadata: { rideId: ride.id, userId: user!.userId } }) });
       const paymentRecord = { rideId: ride.id, amount: amountNaira, method: 'Paystack', status: 'Pending', reference, userId: user!.userId, createdAt: new Date().toISOString() };
       const [paymentId] = await db.add('payments', [paymentRecord]);

@@ -147,9 +147,11 @@ function App() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [notificationItems, setNotificationItems] = useState<any[]>([]);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notificationBusy, setNotificationBusy] = useState<string | 'all' | null>(null);
   const [showRating, setShowRating] = useState(false);
   const [driverLocation, setDriverLocation] = useState<{lat:number;lng:number} | null>(null);
   const [paymentBusy, setPaymentBusy] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -163,14 +165,18 @@ function App() {
   }, [location.pathname, authUser?.role]);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !notificationOpen) return;
     const closeOnOutsideClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (target.closest('.role-menu') || target.closest('.workspace-trigger')) return;
-      if (!topbarRef.current?.contains(target)) setMenuOpen(false);
+      if (target.closest('.role-menu, .workspace-trigger, .notification-wrap')) return;
+      setMenuOpen(false);
+      setNotificationOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        setNotificationOpen(false);
+      }
     };
     document.addEventListener('mousedown', closeOnOutsideClick);
     document.addEventListener('keydown', closeOnEscape);
@@ -178,7 +184,7 @@ function App() {
       document.removeEventListener('mousedown', closeOnOutsideClick);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [menuOpen]);
+  }, [menuOpen, notificationOpen]);
   const [rating, setRating] = useState(5);
   const [review, setReview] = useState('');
   const socketRef = useRef<ReturnType<typeof ws.connect> | null>(null);
@@ -234,18 +240,26 @@ function App() {
   const unreadNotificationCount = notificationItems.filter(item => !item.read).length;
 
   const markNotificationRead = async (item: any) => {
-    if (!item?.id) return;
-    if (!item.read) {
-      try { await api.post('/api/notifications/' + item.id + '/read'); } catch {}
-      setNotificationItems(current => current.map(n => n.id === item.id ? { ...n, read: true } : n));
+    if (!item?.id || notificationBusy) return;
+    setNotificationBusy(String(item.id));
+    try {
+      if (!item.read) {
+        try { await api.post('/api/notifications/' + item.id + '/read'); } catch {}
+        setNotificationItems(current => current.map(n => n.id === item.id ? { ...n, read: true } : n));
+      }
+      setNotificationOpen(false);
+      if (item.url && String(item.url).startsWith('/')) rootNavigate(item.url);
+    } finally {
+      setNotificationBusy(null);
     }
-    setNotificationOpen(false);
-    if (item.url && String(item.url).startsWith('/')) rootNavigate(item.url);
   };
 
   const markAllNotificationsRead = async () => {
+    if (notificationBusy) return;
+    setNotificationBusy('all');
     try { await api.post('/api/notifications/read-all'); } catch {}
     setNotificationItems(current => current.map(n => ({ ...n, read: true })));
+    setNotificationBusy(null);
   };
 
   useEffect(() => {
@@ -274,7 +288,8 @@ function App() {
         if (mounted && Array.isArray(driversRes.data?.drivers) && driversRes.data.drivers.length) setDrivers(driversRes.data.drivers);
         if (mounted && profileRes.data?.profile) {
           setProfile(profileRes.data.profile);
-          setRole(profileRes.data.profile.role || authUser.role || 'passenger');
+          const profileRole = profileRes.data.profile.role as Role | undefined;
+          setRole(authUser.role === 'admin' || authUser.role === 'driver' ? authUser.role : profileRole || authUser.role || 'passenger');
         }
         if (mounted && driverRes.data?.driver) setDriverProfile(driverRes.data.driver);
         if (mounted && Array.isArray(notificationsRes.data?.notifications)) setNotificationItems(notificationsRes.data.notifications);
@@ -329,16 +344,19 @@ function App() {
     if (!rideId) return;
     const connection = socketRef.current;
     let cancelled = false;
+    let unsubscribeRide: (() => void) | undefined;
+    let unsubscribeDriver: (() => void) | undefined;
+
     connection.ready.then(() => {
-      if (cancelled || !connection.connectionId) return;
-      api.post('/api/subscriptions', { entity_type: 'rides', entity_id: rideId, connection_id: connection.connectionId }).catch(() => {});
-      if (driverId) api.post('/api/subscriptions', { entity_type: 'drivers', entity_id: driverId, connection_id: connection.connectionId }).catch(() => {});
+      if (cancelled) return;
+      unsubscribeRide = ws.subscribe('rides', rideId);
+      if (driverId) unsubscribeDriver = ws.subscribe('drivers', driverId);
     });
+
     return () => {
       cancelled = true;
-      if (!connection.connectionId) return;
-      api.post('/api/subscriptions/remove', { entity_type: 'rides', entity_id: rideId, connection_id: connection.connectionId }).catch(() => {});
-      if (driverId) api.post('/api/subscriptions/remove', { entity_type: 'drivers', entity_id: driverId, connection_id: connection.connectionId }).catch(() => {});
+      unsubscribeRide?.();
+      unsubscribeDriver?.();
     };
   }, [activeRide?.id, activeRide?.driverId]);
 
@@ -437,11 +455,14 @@ function App() {
   };
 
   const saveProfile = async (next: Profile) => {
+    if (profileBusy) return;
+    setProfileBusy(true);
     setProfile(next);
     try {
       await api.post('/api/profile', next);
       notify('Profile saved');
     } catch { notify('Profile could not be saved. Please try again.'); }
+    finally { setProfileBusy(false); }
   };
 
   const requestRide = async (pickup: string, destination: string, amount: number, pickupCoords?: {lat:number;lng:number}, destinationCoords?: {lat:number;lng:number}, rider?: {name:string;phone:string;bookedForSelf:boolean}) => {
@@ -543,7 +564,7 @@ function App() {
       const res = await api.post('/api/trip-shares', { rideId: activeRide.id });
       const shareTarget = res.data?.url || '/?ride=' + encodeURIComponent(activeRide.id);
       const sharePath = shareTarget.startsWith('/') ? shareTarget : '/' + shareTarget;
-      const shareUrl = new URL('/#' + sharePath, window.location.origin).href;
+      const shareUrl = new URL(sharePath, window.location.origin).href;
       if (navigator.share) await navigator.share({ title: 'Track my Tridash trip', text, url: shareUrl });
       else await navigator.clipboard.writeText(shareUrl + '\\n' + text);
       notify('Trip tracking link ready to share');
@@ -660,7 +681,7 @@ function App() {
   const requests = rides.filter(r => r.status === 'Requested');
   const pendingDrivers = drivers.filter(d => !d.verified);
 
-  const renderPassenger = (routeTab: Tab) => <PassengerWorkspace tab={routeTab} setTab={setTab} profile={profile} activeRide={activeForPassenger} myTrips={myTrips} requestRide={requestRide} updateRide={updateRide} cancelRide={cancelRide} sendSOS={sendSOS} shareTrip={shareTrip} driverLocation={driverLocation} payRide={payRide} paymentBusy={paymentBusy} saveProfile={saveProfile} notify={notify} showRating={showRating} setShowRating={setShowRating} rating={rating} setRating={setRating} review={review} setReview={setReview} submitRating={submitRating} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} selectedRide={selectedRide} setSelectedRide={setSelectedRide} />;
+  const renderPassenger = (routeTab: Tab) => <PassengerWorkspace tab={routeTab} setTab={setTab} profile={profile} activeRide={activeForPassenger} myTrips={myTrips} requestRide={requestRide} updateRide={updateRide} cancelRide={cancelRide} sendSOS={sendSOS} shareTrip={shareTrip} driverLocation={driverLocation} payRide={payRide} paymentBusy={paymentBusy} saveProfile={saveProfile} profileBusy={profileBusy} notify={notify} showRating={showRating} setShowRating={setShowRating} rating={rating} setRating={setRating} review={review} setReview={setReview} submitRating={submitRating} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} selectedRide={selectedRide} setSelectedRide={setSelectedRide} />;
   const renderDriver = (routeTab: Tab) => <DriverWorkspace tab={routeTab} setTab={setTab} driver={driverProfile || drivers.find(d => d.userId === authUser?.userId) || { id: 'pending-driver', userId: authUser?.userId, name: profile.name || authUser?.name || 'Driver', phone: profile.phone || '', rating: 0, verified: false, online: false, tricycle: '', documents: [], status: 'pending' }} requests={requests} activeRide={activeRide} rides={rides} updateRide={updateRide} acceptRide={acceptRide} rejectRide={rejectRide} toggleOnline={toggleDriverOnline} notify={notify} saveProfile={saveProfile} profile={profile} driverLocation={driverLocation} />;
 
   if (!authReady) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Checking your secure session…</p></div>;
@@ -673,6 +694,7 @@ function App() {
     if (next === 'admin' && role !== 'admin') return;
     setWorkspaceMode(next);
     setMenuOpen(false);
+    setNotificationOpen(false);
     setSelectedRide(null);
     setTabState('home');
     rootNavigate(next === 'driver' ? 'driver' : next === 'admin' ? 'admin' : '');
@@ -687,9 +709,9 @@ function App() {
         <div className="topbar-actions">
           {role !== 'passenger' && <button className="workspace-trigger" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(v => !v)}><span className="workspace-trigger-text"><span className="workspace-trigger-label">WORKSPACE</span><strong>{workspaceMode === 'admin' ? 'Admin' : workspaceMode === 'driver' ? 'Driver' : 'Rider'}</strong></span><ChevronDown size={15} /></button>}
           <div className="notification-wrap">
-            <button className="icon-button notification-button" title="Notifications" aria-label="Notifications" aria-expanded={notificationOpen} onClick={() => setNotificationOpen(v => !v)}><Bell size={18} />{unreadNotificationCount > 0 && <span className="notification-badge">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}</button>
+            <button className="icon-button notification-button" title="Notifications" aria-label="Notifications" aria-expanded={notificationOpen} onClick={() => { setNotificationOpen(v => !v); setMenuOpen(false); }}><Bell size={18} />{unreadNotificationCount > 0 && <span className="notification-badge">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}</button>
             {notificationOpen && <div className="notification-popover" role="dialog" aria-label="Notifications">
-              <div className="notification-head"><div><span className="eyebrow">INBOX</span><strong>Notifications</strong></div>{unreadNotificationCount > 0 && <button className="text-button-inline" onClick={markAllNotificationsRead}>Mark all read</button>}</div>
+              <div className="notification-head"><div><span className="eyebrow">INBOX</span><strong>Notifications</strong></div>{unreadNotificationCount > 0 && <button className="text-button-inline" disabled={notificationBusy !== null} aria-busy={notificationBusy === 'all'} onClick={markAllNotificationsRead}>{notificationBusy === 'all' ? 'Marking…' : 'Mark all read'}</button>}</div>
               <div className="notification-list">{notificationItems.length ? notificationItems.slice(0, 12).map(item => <button key={item.id} className={'notification-item '+(item.read ? '' : 'unread')} onClick={() => markNotificationRead(item)}><span className="notification-icon"><Bell size={15}/></span><span className="notification-copy"><strong>{item.title}</strong><span>{item.body}</span><small>{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</small></span></button>) : <div className="notification-empty"><Bell size={20}/><span>No notifications yet.</span></div>}</div>
             </div>}
           </div>
@@ -849,12 +871,12 @@ function VerificationScreen({ busy, firebaseUser, onVerified, onRefresh, onResen
 function PassengerWorkspace(props: any) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { tab, setTab, profile, activeRide, myTrips, requestRide, updateRide, cancelRide, sendSOS, shareTrip, payRide, paymentBusy, saveProfile, notify, showRating, setShowRating, rating, setRating, review, setReview, submitRating, notificationsEnabled, enableNotifications, selectedRide, setSelectedRide, driverLocation } = props;
+  const { tab, setTab, profile, activeRide, myTrips, requestRide, updateRide, cancelRide, sendSOS, shareTrip, payRide, paymentBusy, saveProfile, profileBusy, notify, showRating, setShowRating, rating, setRating, review, setReview, submitRating, notificationsEnabled, enableNotifications, selectedRide, setSelectedRide, driverLocation } = props;
   if (tab === 'request') return <RequestPageMap requestRide={requestRide} setTab={setTab} notify={notify} profile={profile} />;
   if (selectedRide) return <RideDetail ride={selectedRide} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} />;
   if (tab === 'trips') return <TripsPage trips={myTrips} setTab={setTab} setSelectedRide={(ride: Ride) => { setSelectedRide(ride); }} />;
   if (tab === 'safety') return <SafetyPage activeRide={activeRide} profile={profile} sendSOS={sendSOS} shareTrip={shareTrip} setTab={setTab} notify={notify} />;
-  if (tab === 'profile') return <ProfilePage profile={profile} saveProfile={saveProfile} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} setTab={setTab} />;
+  if (tab === 'profile') return <ProfilePage profile={profile} saveProfile={saveProfile} profileBusy={profileBusy} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} setTab={setTab} />;
   return (
     <div className="mobile-frame">
       <section className="hero-copy"><div className="eyebrow">PASSENGER</div><h1>Good morning,<br /><strong>{profile.name || 'there'} 👋</strong></h1><p>Every ride, logged. Every driver, checked.</p></section>
@@ -930,11 +952,11 @@ function SafetyPage({ activeRide, profile, sendSOS, shareTrip, setTab, notify }:
   </div>;
 }
 
-function ProfilePage({ profile, saveProfile, notificationsEnabled, enableNotifications, setTab }: any) {
+function ProfilePage({ profile, saveProfile, profileBusy, notificationsEnabled, enableNotifications, setTab }: any) {
   const [form, setForm] = useState(profile);
   return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">ACCOUNT</div><h2>Profile & settings</h2></div></section>
     <div className="profile-card"><div className="avatar large">{form.name.slice(0,2).toUpperCase() || 'TR'}</div><div><strong>{form.name || 'Your profile'}</strong><span>{form.phone || 'Add your phone number'}</span></div></div>
-    <div className="form-card"><label>Full name<input value={form.name} onChange={e => setForm({...form,name:e.target.value})} /></label><label>Phone<input value={form.phone} onChange={e => setForm({...form,phone:e.target.value})} placeholder="080..." /></label><label>Emergency contact name<input value={form.emergencyName} onChange={e => setForm({...form,emergencyName:e.target.value})} /></label><label>Emergency contact phone<input value={form.emergencyPhone} onChange={e => setForm({...form,emergencyPhone:e.target.value})} placeholder="080..." /></label><button className="primary-button full" onClick={() => saveProfile(form)}>Save profile</button></div>
+    <div className="form-card"><label>Full name<input value={form.name} onChange={e => setForm({...form,name:e.target.value})} /></label><label>Phone<input value={form.phone} onChange={e => setForm({...form,phone:e.target.value})} placeholder="080..." /></label><label>Emergency contact name<input value={form.emergencyName} onChange={e => setForm({...form,emergencyName:e.target.value})} /></label><label>Emergency contact phone<input value={form.emergencyPhone} onChange={e => setForm({...form,emergencyPhone:e.target.value})} placeholder="080..." /></label><button className="primary-button full" disabled={profileBusy} aria-busy={profileBusy} onClick={() => saveProfile(form)}>{profileBusy ? 'Saving profile…' : 'Save profile'}</button></div>
     <div className="settings-row"><Bell size={19} /><div><strong>Push notifications</strong><span>{notificationsEnabled ? 'Enabled' : 'Receive ride and safety updates'}</span></div><button className="secondary-button" onClick={enableNotifications}>{notificationsEnabled ? 'Enabled' : 'Enable'}</button></div>
   </div>;
 }

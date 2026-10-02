@@ -14,6 +14,7 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
     const [locating, setLocating] = useState(false);
     const [gpsError, setGpsError] = useState('');
     const [confirmOpen, setConfirmOpen] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
     const [editingPhone, setEditingPhone] = useState(false);
     const [ridePhone, setRidePhone] = useState(profile.phone || '');
 
@@ -81,17 +82,23 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
     };
 
     const confirmRide = async () => {
+        if (submitting) return;
         if (!ridePhone.trim() || ridePhone.trim().length < 7) {
             notify('Add a valid phone number for this ride.');
             setEditingPhone(true);
             return;
         }
-        setConfirmOpen(false);
-        await requestRide(pickup, destination.trim(), fare, pickupCoords || undefined, destinationCoords || undefined, {
-            name: profile.name,
-            phone: ridePhone.trim(),
-            bookedForSelf: true
-        });
+        setSubmitting(true);
+        try {
+            await requestRide(pickup, destination.trim(), fare, pickupCoords || undefined, destinationCoords || undefined, {
+                name: profile.name,
+                phone: ridePhone.trim(),
+                bookedForSelf: true
+            });
+            setConfirmOpen(false);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     return (
@@ -127,8 +134,8 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
                 <div><span>ROUTE</span><strong>{route ? (route.distanceMeters / 1000).toFixed(1) + ' km · ' + Math.max(1, Math.round(route.durationSeconds / 60)) + ' min' : 'Find a route first'}</strong></div>
             </div>
             <p className="hint">Your contact number is used for this ride so the driver can reach you when needed. Online payment is handled through Paystack after the trip is completed.</p>
-            <button className="primary-button full" disabled={!pickupCoords || !destinationCoords || busy} onClick={() => setConfirmOpen(true)}>Review and request ride <ShieldCheck size={17} /></button>
-            {confirmOpen && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setConfirmOpen(false); }}><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="request-confirm-title"><div className="eyebrow">CONFIRM RIDE</div><h3 id="request-confirm-title">Ready to request?</h3><p>{pickup} → {destination} · ₦{fare.toLocaleString()} estimated fare</p><div className="confirm-contact"><span>Contact</span><strong>{ridePhone}</strong></div><div className="confirm-actions"><button className="secondary-button" onClick={() => setConfirmOpen(false)}>Review again</button><button className="primary-button" onClick={confirmRide}>Request ride</button></div></div></div>}
+            <button className="primary-button full" disabled={!pickupCoords || !destinationCoords || busy || submitting} aria-busy={submitting} onClick={() => setConfirmOpen(true)}>{submitting ? 'Requesting your ride…' : 'Review and request ride'} <ShieldCheck size={17} /></button>
+            {confirmOpen && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setConfirmOpen(false); }}><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="request-confirm-title"><div className="eyebrow">CONFIRM RIDE</div><h3 id="request-confirm-title">Ready to request?</h3><p>{pickup} → {destination} · ₦{fare.toLocaleString()} estimated fare</p><div className="confirm-contact"><span>Contact</span><strong>{ridePhone}</strong></div><div className="confirm-actions"><button className="secondary-button" onClick={() => setConfirmOpen(false)}>Review again</button><button className="primary-button" disabled={submitting} aria-busy={submitting} onClick={confirmRide}>{submitting ? 'Requesting…' : 'Request ride'}</button></div></div></div>}
         </div>
     );
 }
