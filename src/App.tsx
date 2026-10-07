@@ -677,7 +677,7 @@ function App() {
 
   const riderTrips = authUser?.userId ? rides.filter(r => r.passengerId === authUser.userId) : [];
   const activeForPassenger = riderTrips.find(r => !['Completed', 'Cancelled'].includes(r.status)) || null;
-  const myTrips = riderTrips.filter(ride => ride.status !== 'Cancelled');
+  const myTrips = riderTrips;
   const requests = rides.filter(r => r.status === 'Requested');
   const pendingDrivers = drivers.filter(d => !d.verified);
 

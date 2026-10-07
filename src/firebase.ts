@@ -7,8 +7,10 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail,
   type ActionCodeSettings,
+  getRedirectResult,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updateProfile,
   type User
@@ -45,7 +47,27 @@ export async function signUpWithFirebase(name: string, email: string, password: 
 
 export async function signInWithGoogle() {
   const provider = new GoogleAuthProvider();
-  return (await signInWithPopup(firebaseAuth, provider)).user;
+  try {
+    return (await signInWithPopup(firebaseAuth, provider)).user;
+  } catch (error: any) {
+    // Popups are commonly blocked (popup blockers, in-app browsers, iOS Safari).
+    // Fall back to a full-page redirect; the result is picked up on return.
+    const code = String(error?.code || '');
+    if (
+      code.includes('popup-blocked') ||
+      code.includes('popup-closed-by-user') ||
+      code.includes('cancelled-popup-request')
+    ) {
+      await signInWithRedirect(firebaseAuth, provider);
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function completeGoogleRedirect() {
+  const result = await getRedirectResult(firebaseAuth);
+  return result?.user || null;
 }
 
 export async function sendResetEmail(email: string) {

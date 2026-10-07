@@ -50,6 +50,13 @@ function getRequestOrigin(req: any): string {
   return host ? String(forwarded).split(',')[0] + '://' + host : 'http://localhost:3001';
 }
 
+// Paystack redirects the payer's browser here after checkout. In production the
+// callback must land on the frontend origin (FRONTEND_URL), not the backend
+// host that serves this API.
+function getFrontendOrigin(): string {
+  return process.env.FRONTEND_URL || 'http://localhost:5173';
+}
+
 // Initialize Paystack payment
 router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequest, res) => {
   try {
@@ -78,7 +85,7 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
     }
 
     const reference = 'TRIDASH-' + ride.id.replace(/[^A-Za-z0-9.-]/g, '-') + '-' + Date.now();
-    const callbackUrl = getRequestOrigin(req) + '/trips/' + encodeURIComponent(ride.id) + '?payment=paystack';
+    const callbackUrl = getFrontendOrigin() + '/trips/' + encodeURIComponent(ride.id) + '?payment=paystack';
 
     const result = await paystackRequest('/transaction/initialize', {
       method: 'POST',
