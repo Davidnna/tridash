@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import prisma from '../utils/database';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
 import { getCommissionPercent } from '../utils/config';
@@ -210,7 +211,8 @@ router.get('/paystack/verify', requireAuth(), async (req: AuthenticatedRequest, 
     }
 
     if (payment.status === 'Paid') {
-      return res.json({ paid: true, payment });
+      const paidRide = await prisma.ride.findUnique({ where: { id: payment.rideId } });
+      return res.json({ paid: true, payment, ride: paidRide });
     }
 
     const result = await paystackRequest('/transaction/verify/' + encodeURIComponent(reference));
@@ -265,5 +267,82 @@ router.get('/paystack/verify', requireAuth(), async (req: AuthenticatedRequest, 
     res.status(502).json({ error: error?.message || 'Unable to verify the online payment' });
   }
 });
+
+// Paystack webhook: authoritative payment confirmation. Marks the payment and
+// ride paid even if the passenger closes the tab before the redirect. The raw
+// body is required for HMAC signature verification, so this route must be
+// mounted with express.raw (see server/src/index.ts).
+router.post('/paystack/webhook', (req, res) => {
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+
+  if (!secret) {
+    return res.status(503).json({ error: 'Paystack is not configured' });
+  }
+
+  const signature = req.headers['x-paystack-signature'];
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(String(req.body || ''));
+
+  const expected = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+  if (!signature || typeof signature !== 'string' || !timingSafeEqualHex(expected, signature)) {
+    return res.status(401).json({ error: 'Invalid webhook signature' });
+  }
+
+  let event: any;
+  try {
+    event = JSON.parse(rawBody.toString('utf8'));
+  } catch {
+    return res.status(400).json({ error: 'Invalid webhook payload' });
+  }
+
+  // Acknowledge quickly; process asynchronously so Paystack does not time out.
+  res.json({ received: true });
+
+  if (event?.event !== 'charge.success') return;
+
+  const transaction = event.data || {};
+  const reference = String(transaction.reference || '');
+
+  (async () => {
+    try {
+      const payment = await prisma.payment.findFirst({ where: { reference } });
+      if (!payment || payment.status === 'Paid') return;
+
+      const ride = await prisma.ride.findUnique({ where: { id: payment.rideId } });
+      if (!ride) return;
+
+      const expectedKobo = Math.round(Number(ride.amount || 0) * 100);
+      if (Number(transaction.amount) !== expectedKobo || String(transaction.currency || '').toUpperCase() !== 'NGN') {
+        return;
+      }
+
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: 'Paid',
+          paidAt: transaction.paid_at ? new Date(transaction.paid_at) : new Date(),
+          channel: transaction.channel || null,
+          transactionId: String(transaction.id),
+        },
+      });
+
+      await prisma.ride.update({
+        where: { id: ride.id },
+        data: {
+          paymentMethod: 'Paystack',
+          paymentStatus: 'Paid',
+          paymentReference: reference,
+        },
+      });
+    } catch (error) {
+      console.error('Paystack webhook processing error:', error);
+    }
+  })();
+});
+
+function timingSafeEqualHex(expected: string, provided: string): boolean {
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(provided, 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 export default router;

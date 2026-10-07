@@ -134,6 +134,14 @@ router.post('/:id/accept', requireAuth(), async (req: AuthenticatedRequest, res)
       return res.status(400).json({ error: 'Add your phone number to your driver profile before accepting rides' });
     }
 
+    // Drivers must have a payout account and Paystack subaccount so fares can
+    // be split to their bank before they can accept rides.
+    if (!driver.payoutSubaccountCode || !driver.payoutAccountNumber || !driver.payoutBankCode) {
+      return res.status(403).json({
+        error: 'Add your payout bank account in your driver profile before accepting rides, so your earnings can be paid to you',
+      });
+    }
+
     const ride = await prisma.ride.findUnique({
       where: { id: String(req.params.id) },
     });

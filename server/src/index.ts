@@ -36,6 +36,9 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
 }));
+// Paystack webhook needs the raw body for HMAC signature verification, so it
+// is mounted before express.json().
+app.use('/api/payments/paystack/webhook', express.raw({ type: '*/*' }));
 app.use(express.json());
 app.use(cookieParser());
 
