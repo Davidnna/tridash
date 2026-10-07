@@ -124,7 +124,12 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
     }
 
     const reference = 'TRIDASH-' + ride.id.replace(/[^A-Za-z0-9.-]/g, '-') + '-' + Date.now();
-    const callbackUrl = getFrontendOrigin() + '/trips/' + encodeURIComponent(ride.id) + '?payment=paystack';
+    // Paystack does not append the reference to the callback URL, so it has to
+    // be carried explicitly. Without it the frontend has nothing to verify.
+    const callbackUrl =
+      getFrontendOrigin() +
+      '/trips/' + encodeURIComponent(ride.id) +
+      '?payment=paystack&reference=' + encodeURIComponent(reference);
 
     // Split payments: if the completed ride has a driver with a verified
     // Paystack subaccount, route the driver's share directly to their bank
