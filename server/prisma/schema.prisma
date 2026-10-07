@@ -74,6 +74,13 @@ model Driver {
   online         Boolean  @default(false)
   status         String   @default("pending") // 'pending', 'active', 'suspended'
   documents      String[]
+  // Paystack payout details. payoutBankCode is the NIP bank code, used with
+  // payoutAccountNumber to create a Paystack subaccount for split payments.
+  payoutBankName      String @default("")
+  payoutBankCode      String @default("")
+  payoutAccountNumber String @default("")
+  payoutAccountName   String @default("")
+  payoutSubaccountCode String @default("")
   lastLocation   Json?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

@@ -2,15 +2,33 @@ import { Router } from 'express';
 import prisma from '../utils/database';
 import { requireAuth, requireDriver, AuthenticatedRequest } from '../middleware/auth';
 import { notifySubscribers } from '../services/websocket';
+import { getCommissionPercent } from '../utils/config';
 
 const router = Router();
 
-// Get all drivers (public)
+// Get all drivers (public). Payout/bank details are excluded so account
+// numbers are only ever visible to the driver themselves.
 router.get('/', requireAuth(), async (req, res) => {
   try {
     const drivers = await prisma.driver.findMany({
       take: 100,
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        phone: true,
+        tricycle: true,
+        rating: true,
+        ratingCount: true,
+        verified: true,
+        online: true,
+        status: true,
+        documents: true,
+        lastLocation: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     res.json({ drivers });
@@ -118,6 +136,83 @@ router.put('/me', requireAuth(), requireDriver(), async (req: AuthenticatedReque
   } catch (error) {
     console.error('Update driver profile error:', error);
     res.status(500).json({ error: 'Failed to update driver profile' });
+  }
+});
+
+// Save the driver's payout account and create (or reuse) a Paystack
+// subaccount so fares are split directly to the driver's bank at settlement.
+router.put('/me/payout-account', requireAuth(), requireDriver(), async (req: AuthenticatedRequest, res) => {
+  try {
+    const driver = await prisma.driver.findUnique({
+      where: { userId: req.user!.userId },
+    });
+
+    if (!driver) {
+      return res.status(404).json({ error: 'Driver profile not found' });
+    }
+
+    const accountNumber = String(req.body?.accountNumber || '').replace(/\s+/g, '');
+    const bankCode = String(req.body?.bankCode || '').trim();
+    const bankName = String(req.body?.bankName || '').trim();
+    const accountName = String(req.body?.accountName || '').trim();
+
+    if (!/^\d{10}$/.test(accountNumber) || !bankCode || !accountName) {
+      return res.status(400).json({ error: 'A 10-digit account number, bank, and confirmed account name are required' });
+    }
+
+    const secret = process.env.PAYSTACK_SECRET_KEY;
+    if (!secret) {
+      return res.status(503).json({ error: 'Payouts are not configured yet. Please try again later.' });
+    }
+
+    let subaccountCode = driver.payoutSubaccountCode;
+
+    // Reuse the existing subaccount when the bank details have not changed;
+    // otherwise create a fresh one so settlement always follows the saved
+    // account. Paystack subaccounts cannot be updated in place reliably.
+    const detailsChanged =
+      driver.payoutAccountNumber !== accountNumber || driver.payoutBankCode !== bankCode;
+
+    if (!subaccountCode || detailsChanged) {
+      const businessName = (driver.name || 'Tridash driver').slice(0, 100);
+      const response = await fetch('https://api.paystack.co/subaccount', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + secret,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          business_name: businessName,
+          settlement_bank: bankName || bankCode,
+          account_number: accountNumber,
+          percentage_charge: getCommissionPercent(),
+        }),
+      });
+      const data = await response.json() as any;
+      if (!response.ok || !data?.status) {
+        throw new Error(data?.message || 'Paystack subaccount creation failed');
+      }
+      subaccountCode = String(data.data?.subaccount_code || '');
+      if (!subaccountCode) {
+        throw new Error('Paystack did not return a subaccount code');
+      }
+    }
+
+    const updatedDriver = await prisma.driver.update({
+      where: { id: driver.id },
+      data: {
+        payoutAccountNumber: accountNumber,
+        payoutBankCode: bankCode,
+        payoutBankName: bankName,
+        payoutAccountName: accountName,
+        payoutSubaccountCode: subaccountCode,
+      },
+    });
+
+    res.json({ driver: updatedDriver });
+  } catch (error: any) {
+    console.error('Driver payout account error:', error);
+    res.status(502).json({ error: error?.message || 'Could not save the payout account' });
   }
 });
 

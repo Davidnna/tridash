@@ -1008,7 +1008,70 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab }: any
       if (res.data?.driver) notify(res.data.driver.verified ? 'Driver profile updated' : 'Driver profile submitted for verification');
     } catch { notify('Driver profile could not be saved.'); }
   };
-  return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">DRIVER ONBOARDING</div><h2>Driver profile</h2></div></section><div className="form-card"><label>Full name<input value={form.name} onChange={e => setForm({...form,name:e.target.value})} /></label><label>Phone<input value={form.phone} onChange={e => setForm({...form,phone:e.target.value})} placeholder="080..." /></label><label>Tricycle registration<input value={form.tricycle} onChange={e => setForm({...form,tricycle:e.target.value.toUpperCase()})} placeholder="EB-123-XY" /></label><label>Government ID<input value={form.governmentId} onChange={e => setForm({...form,governmentId:e.target.value})} placeholder="ID number or submitted" /></label><label>Registration document<input value={form.registration} onChange={e => setForm({...form,registration:e.target.value})} placeholder="Registration number or submitted" /></label><button className="primary-button full" onClick={submit}>Save & submit for verification</button></div><div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">STATUS</span><strong>{driver.verified ? 'Verified driver' : 'Pending admin verification'}</strong><p>{driver.verified ? 'You can go online and accept passenger requests.' : 'An administrator must verify your government ID and tricycle registration before you can accept rides.'}</p></div></div></div>;
+  return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">DRIVER ONBOARDING</div><h2>Driver profile</h2></div></section><div className="form-card"><label>Full name<input value={form.name} onChange={e => setForm({...form,name:e.target.value})} /></label><label>Phone<input value={form.phone} onChange={e => setForm({...form,phone:e.target.value})} placeholder="080..." /></label><label>Tricycle registration<input value={form.tricycle} onChange={e => setForm({...form,tricycle:e.target.value.toUpperCase()})} placeholder="EB-123-XY" /></label><label>Government ID<input value={form.governmentId} onChange={e => setForm({...form,governmentId:e.target.value})} placeholder="ID number or submitted" /></label><label>Registration document<input value={form.registration} onChange={e => setForm({...form,registration:e.target.value})} placeholder="Registration number or submitted" /></label><button className="primary-button full" onClick={submit}>Save & submit for verification</button></div><div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">STATUS</span><strong>{driver.verified ? 'Verified driver' : 'Pending admin verification'}</strong><p>{driver.verified ? 'You can go online and accept passenger requests.' : 'An administrator must verify your government ID and tricycle registration before you can accept rides.'}</p></div></div><PayoutAccountSection driver={driver} notify={notify} /></div>;
+}
+
+function PayoutAccountSection({ driver, notify }: any) {
+  const [banks, setBanks] = useState<{ name: string; code: string }[]>([]);
+  const [bankCode, setBankCode] = useState(driver.payoutBankCode || '');
+  const [accountNumber, setAccountNumber] = useState(driver.payoutAccountNumber || '');
+  const [accountName, setAccountName] = useState(driver.payoutAccountName || '');
+  const [busy, setBusy] = useState<'resolve' | 'save' | null>(null);
+  const saved = Boolean(driver.payoutSubaccountCode);
+
+  useEffect(() => {
+    let mounted = true;
+    api.get('/api/payments/banks').then(res => {
+      if (mounted && Array.isArray(res.data?.banks)) setBanks(res.data.banks);
+    }).catch(() => { /* bank list is optional; driver can retry */ });
+    return () => { mounted = false; };
+  }, []);
+
+  const resolveAccount = async () => {
+    if (!/^\d{10}$/.test(accountNumber.replace(/\s+/g, '')) || !bankCode) {
+      notify('Enter a 10-digit account number and select a bank.');
+      return;
+    }
+    setBusy('resolve');
+    try {
+      const res = await api.post('/api/payments/banks/resolve', { accountNumber, bankCode });
+      if (res.data?.accountName) {
+        setAccountName(res.data.accountName);
+        notify('Account confirmed: ' + res.data.accountName);
+      } else {
+        notify('Could not confirm that account. Check the details.');
+      }
+    } catch (error: any) {
+      notify(error?.message || 'Could not verify that bank account');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveAccount = async () => {
+    if (!accountName) {
+      notify('Confirm the account name first.');
+      return;
+    }
+    setBusy('save');
+    try {
+      const bank = banks.find(b => b.code === bankCode);
+      await api.put('/api/driver/me/payout-account', { accountNumber, bankCode, bankName: bank?.name || '', accountName });
+      notify('Payout account saved. Fares will be split to this account.');
+    } catch (error: any) {
+      notify(error?.message || 'Could not save the payout account');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return <div className="form-card"><span className="eyebrow">PAYOUT ACCOUNT</span><p className="muted">Fares are split automatically: you receive your share directly in this bank account after each paid trip.</p>
+    <label>Bank<select value={bankCode} onChange={e => { setBankCode(e.target.value); setAccountName(''); }}><option value="">Select your bank</option>{banks.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}</select></label>
+    <label>Account number<input value={accountNumber} onChange={e => { setAccountNumber(e.target.value.replace(/[^\d\s]/g, '')); setAccountName(''); }} placeholder="10-digit account number" inputMode="numeric" /></label>
+    <button className="secondary-button full" disabled={busy !== null || !bankCode || !/^\d{10}$/.test(accountNumber.replace(/\s+/g, ''))} onClick={resolveAccount}>{busy === 'resolve' ? 'Checking…' : 'Check account name'}</button>
+    {accountName && <div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">CONFIRMED</span><strong>{accountName}</strong><p>Save to receive your ride earnings here.</p></div></div>}
+    <button className="primary-button full" disabled={busy !== null || !accountName || (saved && accountNumber === (driver.payoutAccountNumber || '') && bankCode === (driver.payoutBankCode || ''))} onClick={saveAccount}>{busy === 'save' ? 'Saving…' : saved ? 'Update payout account' : 'Save payout account'}</button>
+  </div>;
 }
 
 function ActiveDriverRide({ ride, updateRide, notify, driverLocation }: any) {

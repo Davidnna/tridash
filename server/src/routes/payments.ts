@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import prisma from '../utils/database';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
+import { getCommissionPercent } from '../utils/config';
 
 const router = Router();
 
@@ -57,6 +58,43 @@ function getFrontendOrigin(): string {
   return process.env.FRONTEND_URL || 'http://localhost:5173';
 }
 
+// List Nigerian banks (NIP codes) for driver payout onboarding.
+router.get('/banks', requireAuth(), async (_req, res) => {
+  try {
+    const result = await paystackRequest('/bank?currency=NGN&country=nigeria&type=nip_bank');
+    const banks = (result.data as any[] || []).map((bank: any) => ({
+      name: bank.name,
+      code: bank.code,
+    }));
+    res.json({ banks });
+  } catch (error: any) {
+    console.error('Paystack bank list error:', error);
+    res.status(502).json({ error: error?.message || 'Could not load the bank list' });
+  }
+});
+
+// Resolve a bank account number to its holder name so drivers can confirm
+// the payout account before it is saved.
+router.post('/banks/resolve', requireAuth(), async (req: AuthenticatedRequest, res) => {
+  try {
+    const accountNumber = String(req.body?.accountNumber || '').replace(/\s+/g, '');
+    const bankCode = String(req.body?.bankCode || '');
+
+    if (!/^\d{10}$/.test(accountNumber) || !bankCode) {
+      return res.status(400).json({ error: 'A 10-digit account number and bank are required' });
+    }
+
+    const result = await paystackRequest(
+      '/bank/resolve?account_number=' + encodeURIComponent(accountNumber) + '&bank_code=' + encodeURIComponent(bankCode)
+    );
+    const data = result.data as any;
+    res.json({ accountName: data?.account_name || '', accountNumber, bankCode });
+  } catch (error: any) {
+    console.error('Paystack bank resolve error:', error);
+    res.status(502).json({ error: error?.message || 'Could not verify that bank account' });
+  }
+});
+
 // Initialize Paystack payment
 router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequest, res) => {
   try {
@@ -87,20 +125,46 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
     const reference = 'TRIDASH-' + ride.id.replace(/[^A-Za-z0-9.-]/g, '-') + '-' + Date.now();
     const callbackUrl = getFrontendOrigin() + '/trips/' + encodeURIComponent(ride.id) + '?payment=paystack';
 
+    // Split payments: if the completed ride has a driver with a verified
+    // Paystack subaccount, route the driver's share directly to their bank
+    // and keep the platform commission. Otherwise the full fare settles to
+    // the platform account.
+    const driver = ride.driverId
+      ? await prisma.driver.findUnique({ where: { id: ride.driverId } })
+      : null;
+
+    const splitBody: Record<string, unknown> = {
+      email: req.user!.email,
+      amount: String(amountNaira * 100), // Convert to kobo
+      currency: 'NGN',
+      reference,
+      callback_url: callbackUrl,
+      channels: ['card', 'bank', 'ussd', 'qr', 'bank_transfer'],
+      metadata: {
+        rideId: ride.id,
+        userId: req.user!.userId,
+      },
+    };
+
+    if (driver?.payoutSubaccountCode) {
+      // Percentage split: the driver's subaccount receives
+      // (100 - commission)% and the platform account keeps the commission.
+      const commissionPercent = getCommissionPercent();
+      splitBody.split = {
+        type: 'percentage',
+        bearer_type: 'all',
+        subaccounts: [
+          {
+            subaccount: driver.payoutSubaccountCode,
+            share: 100 - commissionPercent,
+          },
+        ],
+      };
+    }
+
     const result = await paystackRequest('/transaction/initialize', {
       method: 'POST',
-      body: JSON.stringify({
-        email: req.user!.email,
-        amount: String(amountNaira * 100), // Convert to kobo
-        currency: 'NGN',
-        reference,
-        callback_url: callbackUrl,
-        channels: ['card', 'bank', 'ussd', 'qr', 'bank_transfer'],
-        metadata: {
-          rideId: ride.id,
-          userId: req.user!.userId,
-        },
-      }),
+      body: JSON.stringify(splitBody),
     });
 
     const payment = await prisma.payment.create({
