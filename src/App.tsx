@@ -745,7 +745,7 @@ function App() {
         <Route path="driver" element={workspaceMode === 'driver' ? renderDriver('home') : renderPassenger('home')} />
         <Route path="driver/requests" element={workspaceMode === 'driver' ? renderDriver('requests') : renderPassenger('home')} />
         <Route path="driver/trips" element={workspaceMode === 'driver' ? renderDriver('trips') : renderPassenger('home')} />
-        <Route path="driver/trips/:rideId" element={workspaceMode === 'driver' ? <RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} driverLocation={driverLocation} backTarget="driver/trips" /> : renderPassenger('home')} />
+        <Route path="driver/trips/:rideId" element={workspaceMode === 'driver' ? <RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} driverLocation={driverLocation} backTarget="driver/trips" viewAsDriver /> : renderPassenger('home')} />
         <Route path="driver/profile" element={workspaceMode === 'driver' ? renderDriver('profile') : renderPassenger('home')} />
         <Route path="admin" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} /> : renderPassenger('home')} />
         <Route path="admin/users" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} initialSection="users" /> : renderPassenger('home')} />
@@ -765,6 +765,21 @@ function App() {
 function NotFoundPage() {
   const navigate = useNavigate();
   return <div className="mobile-frame"><div className="empty-card not-found-card"><div className="empty-icon"><Search size={24}/></div><div className="eyebrow">404</div><h2>Page not found</h2><p>The Tridash page you requested does not exist or may have moved.</p><button className="primary-button" onClick={() => navigate('..')}>Return to Tridash</button></div></div>;
+}
+
+// Google Maps universal navigation link. Coordinates are preferred because they
+// are unambiguous; the address is only a fallback for trips booked without them.
+// The `api=1` URL scheme is Google's documented cross-platform deep link, so it
+// opens Google Maps on Android and iOS and the web app on desktop, without an
+// API key or a Maps SDK dependency.
+function googleMapsDirectionsUrl(from: { lat?: number; lng?: number } | null | undefined, to: { lat?: number; lng?: number } | null | undefined, fromLabel?: string, toLabel?: string): string {
+  const encode = (coords: any, label?: string) => coords && Number.isFinite(Number(coords.lat)) && Number.isFinite(Number(coords.lng))
+    ? Number(coords.lat) + ',' + Number(coords.lng)
+    : encodeURIComponent(String(label || '').trim());
+  const origin = encode(from, fromLabel);
+  const destination = encode(to, toLabel);
+  if (!origin || !destination) return '';
+  return 'https://www.google.com/maps/dir/?api=1&origin=' + origin + '&destination=' + destination + '&travelmode=driving';
 }
 
 function ConfirmDialog({ title, message, confirmLabel, onCancel, onConfirm }: { title:string; message:string; confirmLabel:string; onCancel:()=>void; onConfirm:()=>void }) {
@@ -788,11 +803,11 @@ function SharedTripRoute() {
   return <div className="mobile-frame"><div className="eyebrow">SHARED TRIP</div><h2 className="shared-trip-title">{state.ride.status}</h2><div className="status-card"><div className="status-icon"><Navigation size={24} /></div><div><strong>{state.ride.pickup} → {state.ride.destination}</strong><p>Estimated fare · ₦{Number(state.ride.amount || 0).toLocaleString()}</p></div></div><MapView pickup={state.ride.pickupCoords} destination={state.ride.destinationCoords} driverLocation={state.driver?.lastLocation || null} /><div className="driver-card"><div className="avatar">{String(state.driver?.name || state.ride.driver || 'TR').slice(0,2).toUpperCase()}</div><div className="driver-info"><strong>{state.driver?.name || state.ride.driver || 'Driver pending'}</strong><span>{state.driver?.tricycle || 'Tridash driver'} · {state.ride.status}</span></div></div><p className="hint">This link is temporary and only shares the trip information needed for tracking.</p></div>;
 }
 
-function RideRoute({ rides, setSelectedRide, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips' }: { rides:Ride[]; setSelectedRide:(ride:Ride|null)=>void; payRide:any; paymentBusy:boolean; driverLocation:any; cancelRide?:any; backTarget?:string }) {
+function RideRoute({ rides, setSelectedRide, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips', viewAsDriver = false }: { rides:Ride[]; setSelectedRide:(ride:Ride|null)=>void; payRide:any; paymentBusy:boolean; driverLocation:any; cancelRide?:any; backTarget?:string; viewAsDriver?:boolean }) {
   const { rideId } = useParams();
   const ride = rides.find(item => item.id === decodeURIComponent(rideId || ''));
   if (!ride) return <div className="mobile-frame"><div className="empty-card"><div className="empty-icon"><Search size={22}/></div><h2>Trip not found</h2><p>This trip is no longer available.</p><button className="primary-button" onClick={() => setSelectedRide(null)}>Return to trips</button></div></div>;
-  return <RideDetail ride={ride} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} backTarget={backTarget} />;
+  return <RideDetail ride={ride} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} backTarget={backTarget} viewAsDriver={viewAsDriver} />;
 }
 
 function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword }: { busy: boolean; onSignIn: (email: string, password: string) => Promise<boolean>; onSignUp: (name: string, email: string, password: string, role: 'passenger' | 'driver') => Promise<boolean>; onGoogleSignIn: () => Promise<boolean>; onResetPassword: (email: string) => Promise<boolean> }) {
@@ -930,19 +945,33 @@ function ActiveRideCard({ ride, driverLocation, onClick }: any) {
 function RoutePoint({ label, value, destination }: any) { return <div className="route-point"><span className={'dot ' + (destination ? 'destination-dot' : '')} /><div><small>{label}</small><strong>{value}</strong></div></div>; }
 function Feature({ icon, title, text }: any) { return <div className="feature-card"><div className="feature-icon">{icon}</div><strong>{title}</strong><p>{text}</p></div>; }
 
-function RideDetail({ ride, setSelectedRide, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips' }: any) {
+function RideDetail({ ride, setSelectedRide, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips', viewAsDriver = false }: any) {
   const navigate = useNavigate();
   const detailLocation = useLocation();
   const fromHome = new URLSearchParams(detailLocation.search).get('from') === 'home';
+  // A driver opening the trip navigates from their own position to the pickup
+  // until the trip starts, and from the pickup to the drop-off afterwards.
+  const navigatingToPickup = ride.status === 'Accepted';
+  const directionsUrl = viewAsDriver
+    ? googleMapsDirectionsUrl(
+        navigatingToPickup ? driverLocation : ride.pickupCoords,
+        navigatingToPickup ? ride.pickupCoords : ride.destinationCoords,
+        navigatingToPickup ? 'Your location' : ride.pickup,
+        navigatingToPickup ? ride.pickup : ride.destination
+      )
+    : googleMapsDirectionsUrl(ride.pickupCoords, ride.destinationCoords, ride.pickup, ride.destination);
   return <div className="mobile-frame">
     <section className="screen-head"><button className="back-button" onClick={() => navigateFromRoot(navigate, detailLocation.pathname, fromHome ? '' : backTarget)}>←</button><div><div className="eyebrow">TRIP DETAILS</div><h2>{ride.status}</h2></div></section>
     <MapView pickup={ride.pickupCoords} destination={ride.destinationCoords} driverLocation={driverLocation} followDriver={ride.status === 'In Progress'} />
-    <div className="driver-card"><div className="avatar">{(ride.driver || 'DR').split(' ').map((x: string) => x[0]).join('')}</div><div className="driver-info"><strong>{ride.driver || 'Driver search in progress'}</strong><span>{ride.tricycle || 'Tricycle pending'} · <Star size={13} fill="currentColor" /> {ride.rating || '—'}</span>{ride.driverPhone && <small>{ride.driverPhone}</small>}</div>{ride.driver && <>{ride.driverPhone ? <a className="call-button" href={'tel:' + ride.driverPhone} aria-label={'Call ' + ride.driver}><Phone size={17} /></a> : <span className="hint">Driver phone unavailable</span>}<span className="verified"><ShieldCheck size={14} /> Verified</span></>}</div>
-    <div className="trip-details"><div><span>FROM</span><strong>{ride.pickup}</strong></div><div><span>TO</span><strong>{ride.destination}</strong></div></div>{ride.riderPhone && <div className="trip-details"><div><span>RIDER</span><strong>{ride.riderName || ride.passenger}</strong></div><div><span>CONTACT</span><strong>{ride.riderPhone}</strong></div></div>}
+    {directionsUrl && <a className="navigate-button" href={directionsUrl} target="_blank" rel="noopener noreferrer"><Navigation size={17} /> {viewAsDriver ? (navigatingToPickup ? 'Navigate to pickup in Google Maps' : 'Navigate to drop-off in Google Maps') : 'Open route in Google Maps'}</a>}
+    {viewAsDriver
+      ? <div className="driver-card"><div className="avatar">{String(ride.passenger || 'PA').slice(0,2).toUpperCase()}</div><div className="driver-info"><strong>{ride.passenger || 'Passenger'}</strong><span>Passenger · {ride.tricycle || 'Tridash tricycle'}</span></div>{ride.riderPhone && <a className="call-button" href={'tel:' + ride.riderPhone} aria-label={'Call ' + ride.passenger}><Phone size={17} /></a>}</div>
+      : <div className="driver-card"><div className="avatar">{(ride.driver || 'DR').split(' ').map((x: string) => x[0]).join('')}</div><div className="driver-info"><strong>{ride.driver || 'Driver search in progress'}</strong><span>{ride.tricycle || 'Tricycle pending'} · <Star size={13} fill="currentColor" /> {ride.rating || '—'}</span>{ride.driverPhone && <small>{ride.driverPhone}</small>}</div>{ride.driver && <>{ride.driverPhone ? <a className="call-button" href={'tel:' + ride.driverPhone} aria-label={'Call ' + ride.driver}><Phone size={17} /></a> : <span className="hint">Driver phone unavailable</span>}<span className="verified"><ShieldCheck size={14} /> Verified</span></>}</div>}
+    <div className="trip-details"><div><span>FROM</span><strong>{ride.pickup}</strong></div><div><span>TO</span><strong>{ride.destination}</strong></div></div>{ride.riderPhone && !viewAsDriver && <div className="trip-details"><div><span>RIDER</span><strong>{ride.riderName || ride.passenger}</strong></div><div><span>CONTACT</span><strong>{ride.riderPhone}</strong></div></div>}
     <div className="payment-box"><div><span>FARE</span><strong>₦{ride.amount.toLocaleString()}</strong></div><div><span>PAYMENT</span><strong>{ride.paymentStatus || 'Pending'}</strong></div></div>
     {ride.status !== 'Completed' && ride.status !== 'Cancelled' && cancelRide && <div className="payment-actions"><button className="secondary-button danger-button full" onClick={() => cancelRide(ride)}>Cancel ride</button></div>}
-    {ride.status === 'Completed' && ride.paymentStatus !== 'Paid' && <div className="payment-actions"><button className="primary-button" disabled={paymentBusy} onClick={() => payRide(ride)}>{paymentBusy ? 'Opening secure checkout…' : 'Pay online with Paystack'}</button></div>}
-    {ride.status === 'Completed' && ride.paymentStatus !== 'Paid' && <p className="hint">Online payment is securely processed by Paystack. Tridash verifies the transaction and exact fare before marking the ride paid.</p>}
+    {ride.status === 'Completed' && ride.paymentStatus !== 'Paid' && !viewAsDriver && <div className="payment-actions"><button className="primary-button" disabled={paymentBusy} onClick={() => payRide(ride)}>{paymentBusy ? 'Opening secure checkout…' : 'Pay online with Paystack'}</button></div>}
+    {ride.status === 'Completed' && ride.paymentStatus !== 'Paid' && !viewAsDriver && <p className="hint">Online payment is securely processed by Paystack. Tridash verifies the transaction and exact fare before marking the ride paid.</p>}
   </div>;
 }
 
@@ -997,11 +1026,15 @@ function RatingModal({ rating, setRating, review, setReview, submit, close }: an
 function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, updateRide, acceptRide, rejectRide, toggleOnline, notify, saveProfile, profile, driverLocation }: any) {
   const navigate = useNavigate();
   const location = useLocation();
+  // Rides are keyed to the driver's user id (Ride.driverId). Matching on the
+  // driver name alone hid trips whenever the name on the ride and the driver
+  // profile drifted apart, which left drivers unable to open their trip details.
+  const myDriverRides = rides.filter((r: Ride) => r.driverId === driver.userId || (r.driver && r.driver === driver.name));
   if (tab === 'requests') return <DriverRequests requests={requests} driver={driver} acceptRide={acceptRide} rejectRide={rejectRide} setTab={setTab} toggleOnline={toggleOnline} />;
-  if (tab === 'trips') return <TripsPage trips={rides.filter((r: Ride) => r.driver === driver.name)} setTab={setTab} workspace="driver" />;
+  if (tab === 'trips') return <TripsPage trips={myDriverRides} setTab={setTab} workspace="driver" />;
   if (tab === 'profile') return <DriverProfilePage profile={{...profile, role:'driver'}} driver={driver} saveProfile={saveProfile} notify={notify} setTab={setTab} />;
   const hasPayoutAccount = Boolean(driver.payoutSubaccountCode);
-  return <div className="mobile-frame"><section className="hero-copy"><div className="eyebrow">DRIVER</div><h1>Good morning,<br /><strong>{driver.name.split(' ')[0]} 👋</strong></h1><p>Verified drivers keep every ride accountable.</p></section><div className="online-card"><div><span className={'status-dot ' + (driver.online ? '' : 'offline')} /> {driver.online ? 'Online' : 'Offline'}</div><button onClick={toggleOnline} disabled={!hasPayoutAccount}>{driver.online ? 'Go offline' : 'Go online'}</button></div><div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">VERIFICATION</span><strong>{driver.verified ? 'Verified driver' : 'Verification pending'}</strong><p>Government ID and tricycle registration status is stored on your driver record.</p></div></div>{!hasPayoutAccount && <div className="form-card"><span className="eyebrow">ACTION REQUIRED</span><strong>Add your payout account</strong><p>Add the bank account that receives your earnings. Drivers without a payout account cannot go online or accept rides.</p><button className="primary-button full" onClick={() => setTab('profile')}>Add payout account <ChevronRight size={18} /></button></div>}{activeRide && activeRide.driver === driver.name ? <ActiveDriverRide ride={activeRide} updateRide={updateRide} notify={notify} driverLocation={driverLocation} /> : <div className="empty-card"><div className="empty-icon"><CarFront size={22} /></div><h2>{driver.online ? 'Waiting for requests' : 'You are offline'}</h2><p>{driver.online ? 'New passenger requests will appear in Ride requests.' : 'Go online to receive ride requests.'}</p><button className="primary-button" onClick={() => setTab('requests')}>View requests <ChevronRight size={18} /></button></div>}<BottomNav tab={tab} setTab={setTab} driver /></div>;
+  return <div className="mobile-frame"><section className="hero-copy"><div className="eyebrow">DRIVER</div><h1>Good morning,<br /><strong>{driver.name.split(' ')[0]} 👋</strong></h1><p>Verified drivers keep every ride accountable.</p></section><div className="online-card"><div><span className={'status-dot ' + (driver.online ? '' : 'offline')} /> {driver.online ? 'Online' : 'Offline'}</div><button onClick={toggleOnline} disabled={!hasPayoutAccount}>{driver.online ? 'Go offline' : 'Go online'}</button></div><div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">VERIFICATION</span><strong>{driver.verified ? 'Verified driver' : 'Verification pending'}</strong><p>Government ID and tricycle registration status is stored on your driver record.</p></div></div>{!hasPayoutAccount && <div className="form-card"><span className="eyebrow">ACTION REQUIRED</span><strong>Add your payout account</strong><p>Add the bank account that receives your earnings. Drivers without a payout account cannot go online or accept rides.</p><button className="primary-button full" onClick={() => setTab('profile')}>Add payout account <ChevronRight size={18} /></button></div>}{activeRide && activeRide.driverId === driver.userId ? <ActiveDriverRide ride={activeRide} updateRide={updateRide} notify={notify} driverLocation={driverLocation} /> : <div className="empty-card"><div className="empty-icon"><CarFront size={22} /></div><h2>{driver.online ? 'Waiting for requests' : 'You are offline'}</h2><p>{driver.online ? 'New passenger requests will appear in Ride requests.' : 'Go online to receive ride requests.'}</p><button className="primary-button" onClick={() => setTab('requests')}>View requests <ChevronRight size={18} /></button></div>}<BottomNav tab={tab} setTab={setTab} driver /></div>;
 }
 
 function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, toggleOnline }: any) {
@@ -1088,7 +1121,16 @@ function PayoutAccountSection({ driver, notify }: any) {
 }
 
 function ActiveDriverRide({ ride, updateRide, notify, driverLocation }: any) {
-  return <div className="driver-active"><div className="status-card"><div className="status-icon"><Navigation size={24} /></div><div><strong>{ride.status}</strong><p>{ride.pickup} → {ride.destination}</p></div></div><MapView pickup={ride.pickupCoords} destination={ride.destinationCoords} userLocation={driverLocation} driverLocation={driverLocation} followDriver /><div className="passenger-card"><div className="avatar">{String(ride.passenger || 'PA').slice(0,2).toUpperCase()}</div><div><strong>{ride.passenger}</strong><span>Passenger · emergency support available</span></div>{ride.passengerPhone ? <a className="call-button" href={'tel:' + ride.passengerPhone} aria-label={'Call ' + ride.passenger}><Phone size={17} /></a> : <button className="call-button" aria-label="Passenger phone unavailable" onClick={() => notify('Passenger phone number is not available')}><Phone size={17} /></button>}</div><div className="safety-row"><button onClick={() => notify('Passenger safety contact opened')}><ShieldAlert size={18} /> Safety</button><button onClick={() => notify('Navigation opened for this trip')}><Navigation size={18} /> Navigate</button></div>{ride.status === 'Accepted' && <button className="primary-button full" onClick={() => updateRide(ride,'In Progress',ride.driver || undefined,ride.driverId)}>Start trip</button>}{ride.status === 'In Progress' && <button className="primary-button full" onClick={() => updateRide(ride,'Completed',ride.driver || undefined,ride.driverId)}>Complete trip</button>}</div>;
+  // Navigate to the pickup while the trip is still Accepted, then switch to the
+  // destination once the passenger is on board.
+  const navigatingToPickup = ride.status === 'Accepted';
+  const directionsUrl = googleMapsDirectionsUrl(
+    navigatingToPickup ? driverLocation : ride.pickupCoords,
+    navigatingToPickup ? ride.pickupCoords : ride.destinationCoords,
+    navigatingToPickup ? 'Your location' : ride.pickup,
+    navigatingToPickup ? ride.pickup : ride.destination
+  );
+  return <div className="driver-active"><div className="status-card"><div className="status-icon"><Navigation size={24} /></div><div><strong>{ride.status}</strong><p>{ride.pickup} → {ride.destination}</p></div></div><MapView pickup={ride.pickupCoords} destination={ride.destinationCoords} userLocation={driverLocation} driverLocation={driverLocation} followDriver /><div className="passenger-card"><div className="avatar">{String(ride.passenger || 'PA').slice(0,2).toUpperCase()}</div><div><strong>{ride.passenger}</strong><span>Passenger · emergency support available</span></div>{ride.passengerPhone ? <a className="call-button" href={'tel:' + ride.passengerPhone} aria-label={'Call ' + ride.passenger}><Phone size={17} /></a> : <button className="call-button" aria-label="Passenger phone unavailable" onClick={() => notify('Passenger phone number is not available')}><Phone size={17} /></button>}</div><div className="safety-row"><button onClick={() => notify('Passenger safety contact opened')}><ShieldAlert size={18} /> Safety</button>{directionsUrl ? <a className="safety-link" href={directionsUrl} target="_blank" rel="noopener noreferrer"><Navigation size={18} /> {navigatingToPickup ? 'Navigate to pickup' : 'Navigate to drop-off'}</a> : <button onClick={() => notify('This trip has no navigation details yet')}><Navigation size={18} /> Navigate</button>}</div>{ride.status === 'Accepted' && <button className="primary-button full" onClick={() => updateRide(ride,'In Progress',ride.driver || undefined,ride.driverId)}>Start trip</button>}{ride.status === 'In Progress' && <button className="primary-button full" onClick={() => updateRide(ride,'Completed',ride.driver || undefined,ride.driverId)}>Complete trip</button>}</div>;
 }
 
 function AdminWorkspace({ drivers, rides, pendingDrivers, approveDriver, notify, updateUserRole, suspendUser, askConfirm, initialSection = 'overview' }: any) {
