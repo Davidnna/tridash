@@ -27,10 +27,14 @@ export function getCookie(req: any, name: string): string | null {
   return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
 }
 
+// SameSite=None is required because the frontend and backend are deployed on
+// different origins (tridash.onrender.com and tridash-api.onrender.com), and
+// onrender.com is a public suffix, so the browser treats them as cross-site.
+// Lax cookies are never attached to cross-site fetch() calls.
 export function setCookieHeader(token: string, maxAge: number = 2592000): string {
-  return `tridash_session=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+  return `tridash_session=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${maxAge}`;
 }
 
 export function clearCookieHeader(): string {
-  return 'tridash_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+  return 'tridash_session=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0';
 }
