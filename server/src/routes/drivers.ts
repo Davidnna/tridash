@@ -165,34 +165,54 @@ router.put('/me/payout-account', requireAuth(), requireDriver(), async (req: Aut
       return res.status(503).json({ error: 'Payouts are not configured yet. Please try again later.' });
     }
 
+    // Re-resolve on the server at save time. Never trust an account name supplied
+    // by the browser: the bank and account number must match Paystack's response.
+    const resolveResponse = await fetch(
+      'https://api.paystack.co/bank/resolve?account_number=' + encodeURIComponent(accountNumber) + '&bank_code=' + encodeURIComponent(bankCode),
+      { headers: { Authorization: 'Bearer ' + secret } }
+    );
+    const resolveData = await resolveResponse.json() as any;
+    if (!resolveResponse.ok || !resolveData?.status || !resolveData?.data?.account_name) {
+      return res.status(400).json({ error: resolveData?.message || 'Paystack could not verify this bank account. Check the bank and account number.' });
+    }
+    const verifiedAccountName = String(resolveData.data.account_name).trim();
+    const normalizeName = (value: string) => value.toLocaleLowerCase().replace(/\s+/g, ' ').trim();
+    if (normalizeName(accountName) !== normalizeName(verifiedAccountName)) {
+      return res.status(409).json({ error: 'The account name changed or no longer matches. Verify the account again before saving.' });
+    }
+
     let subaccountCode = driver.payoutSubaccountCode;
 
-    // Reuse the existing subaccount when the bank details have not changed;
-    // otherwise create a fresh one so settlement always follows the saved
-    // account. Paystack subaccounts cannot be updated in place reliably.
+    // Keep the existing Paystack split-settlement design. Update an existing
+    // subaccount when details change to avoid orphaning old subaccounts; persist
+    // the new bank details only after Paystack confirms the create/update.
     const detailsChanged =
       driver.payoutAccountNumber !== accountNumber || driver.payoutBankCode !== bankCode;
 
     if (!subaccountCode || detailsChanged) {
       const businessName = (driver.name || 'Tridash driver').slice(0, 100);
-      const response = await fetch('https://api.paystack.co/subaccount', {
-        method: 'POST',
+      const isUpdatingSubaccount = Boolean(subaccountCode && detailsChanged);
+      const endpoint = isUpdatingSubaccount
+        ? 'https://api.paystack.co/subaccount/' + encodeURIComponent(subaccountCode)
+        : 'https://api.paystack.co/subaccount';
+      const response = await fetch(endpoint, {
+        method: isUpdatingSubaccount ? 'PUT' : 'POST',
         headers: {
           Authorization: 'Bearer ' + secret,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           business_name: businessName,
-          settlement_bank: bankName || bankCode,
+          bank_code: bankCode,
           account_number: accountNumber,
           percentage_charge: getCommissionPercent(),
         }),
       });
       const data = await response.json() as any;
       if (!response.ok || !data?.status) {
-        throw new Error(data?.message || 'Paystack subaccount creation failed');
+        throw new Error(data?.message || (isUpdatingSubaccount ? 'Paystack subaccount update failed' : 'Paystack subaccount creation failed'));
       }
-      subaccountCode = String(data.data?.subaccount_code || '');
+      subaccountCode = String(data.data?.subaccount_code || subaccountCode || '');
       if (!subaccountCode) {
         throw new Error('Paystack did not return a subaccount code');
       }
@@ -204,7 +224,7 @@ router.put('/me/payout-account', requireAuth(), requireDriver(), async (req: Aut
         payoutAccountNumber: accountNumber,
         payoutBankCode: bankCode,
         payoutBankName: bankName,
-        payoutAccountName: accountName,
+        payoutAccountName: verifiedAccountName,
         payoutSubaccountCode: subaccountCode,
       },
     });

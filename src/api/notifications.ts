@@ -41,7 +41,7 @@ class NotificationsClient {
   }
 
   // Placeholder for subscribing to topics
-  async subscribe(topic: string): Promise<void> {
+  async subscribe(_topic?: string): Promise<void> {
     console.warn('Topic subscription not implemented yet');
   }
 }

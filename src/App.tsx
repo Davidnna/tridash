@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from './api/client';
 import { ws } from './api/websocket';
 import { notifications } from './api/notifications';
-import MapView from './MapView'; import RequestPageMap from './RequestPageMap';
+import MapView from './MapView';
+import RequestPageMap from './RequestPageMap';
 import { firebaseAuth, onAuthStateChanged, resendVerification, refreshFirebaseUser, sendResetEmail, signInWithFirebase, signInWithGoogle, signOut, signUpWithFirebase } from './firebase';
 import {
   Activity, AlertTriangle, Bell, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3,
-  CreditCard, FileCheck2, History, Home, LogOut, MapPin, Menu, MessageSquareWarning,
-  Navigation, Phone, Plus, Search, Settings, Shield, ShieldAlert, ShieldCheck, Star,
+  CreditCard, FileCheck2, History, Home, LogOut, MapPin, MessageSquareWarning,
+  Navigation, Phone, Search, Settings, Shield, ShieldAlert, ShieldCheck, Star, RefreshCw, Landmark,
   UserRound, Users, X, Zap
 } from 'lucide-react';
 
@@ -99,9 +100,7 @@ function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const rootNavigate = (target: string) => navigateFromRoot(navigate, location.pathname, target);
-  const [tab, setTabState] = useState<Tab>('home');
   const setTab = (next: Tab) => {
-    setTabState(next);
     if (next === 'home') {
       rootNavigate(workspaceMode === 'driver' ? 'driver' : workspaceMode === 'admin' ? 'admin' : '');
       return;
@@ -156,8 +155,6 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     const path = location.pathname;
-    const nextTab: Tab = path === '/request' ? 'request' : path === '/trips' ? 'trips' : path === '/safety' ? 'safety' : path === '/profile' ? 'profile' : path === '/driver/requests' ? 'requests' : path === '/driver/trips' ? 'trips' : path === '/driver/profile' ? 'profile' : path.startsWith('/admin') ? 'admin' : 'home';
-    setTabState(nextTab);
     if (authUser?.role === 'driver' && path.startsWith('/driver')) setWorkspaceMode('driver');
     else if (authUser?.role === 'admin' && path.startsWith('/admin')) setWorkspaceMode('admin');
     else if (path === '/' || ['/request','/trips','/safety','/profile'].includes(path)) setWorkspaceMode('rider');
@@ -435,6 +432,9 @@ function App() {
     setAuthBusy(true);
     try {
       const firebaseUser = await signInWithGoogle();
+      // signInWithGoogle returns null when it falls back to a full-page
+      // redirect: the page is navigating away, so there is nothing to report.
+      if (!firebaseUser) return true;
       if (!firebaseUser.emailVerified) {
         setAuthUser({ userId: firebaseUser.uid, email: firebaseUser.email || '', name: firebaseUser.displayName || '', role: 'passenger', emailVerified: false, firebaseUser });
         notify('Please verify your email before entering Tridash.');
@@ -692,7 +692,7 @@ function App() {
   const requests = rides.filter(r => r.status === 'Requested');
   const pendingDrivers = drivers.filter(d => !d.verified);
 
-  const renderPassenger = (routeTab: Tab) => <PassengerWorkspace tab={routeTab} setTab={setTab} profile={profile} activeRide={activeForPassenger} myTrips={myTrips} requestRide={requestRide} updateRide={updateRide} cancelRide={cancelRide} sendSOS={sendSOS} shareTrip={shareTrip} driverLocation={driverLocation} payRide={payRide} paymentBusy={paymentBusy} saveProfile={saveProfile} profileBusy={profileBusy} notify={notify} showRating={showRating} setShowRating={setShowRating} rating={rating} setRating={setRating} review={review} setReview={setReview} submitRating={submitRating} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} selectedRide={selectedRide} setSelectedRide={setSelectedRide} />;
+  const renderPassenger = (routeTab: Tab) => <PassengerWorkspace tab={routeTab} setTab={setTab} profile={profile} activeRide={activeForPassenger} myTrips={myTrips} requestRide={requestRide} cancelRide={cancelRide} sendSOS={sendSOS} shareTrip={shareTrip} driverLocation={driverLocation} payRide={payRide} paymentBusy={paymentBusy} saveProfile={saveProfile} profileBusy={profileBusy} notify={notify} showRating={showRating} setShowRating={setShowRating} rating={rating} setRating={setRating} review={review} setReview={setReview} submitRating={submitRating} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} selectedRide={selectedRide} setSelectedRide={setSelectedRide} />;
   const renderDriver = (routeTab: Tab) => <DriverWorkspace tab={routeTab} setTab={setTab} driver={driverProfile || drivers.find(d => d.userId === authUser?.userId) || { id: 'pending-driver', userId: authUser?.userId, name: profile.name || authUser?.name || 'Driver', phone: profile.phone || '', rating: 0, verified: false, online: false, tricycle: '', documents: [], status: 'pending' }} requests={requests} activeRide={activeRide} rides={rides} updateRide={updateRide} acceptRide={acceptRide} rejectRide={rejectRide} toggleOnline={toggleDriverOnline} notify={notify} saveProfile={saveProfile} profile={profile} driverLocation={driverLocation} />;
 
   if (!authReady) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Checking your secure session…</p></div>;
@@ -707,7 +707,6 @@ function App() {
     setMenuOpen(false);
     setNotificationOpen(false);
     setSelectedRide(null);
-    setTabState('home');
     rootNavigate(next === 'driver' ? 'driver' : next === 'admin' ? 'admin' : '');
   };
 
@@ -738,14 +737,14 @@ function App() {
         <Route path="" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} /> : workspaceMode === 'driver' ? renderDriver('home') : renderPassenger('home')} />
         <Route path="request" element={renderPassenger('request')} />
         <Route path="trips" element={renderPassenger('trips')} />
-        <Route path="trips/:rideId" element={<RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} driverLocation={driverLocation} cancelRide={cancelRide} />} />
+        <Route path="trips/:rideId" element={<RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} />} />
         <Route path="shared-trip/:token" element={<SharedTripRoute />} />
         <Route path="safety" element={renderPassenger('safety')} />
         <Route path="profile" element={renderPassenger('profile')} />
         <Route path="driver" element={workspaceMode === 'driver' ? renderDriver('home') : renderPassenger('home')} />
         <Route path="driver/requests" element={workspaceMode === 'driver' ? renderDriver('requests') : renderPassenger('home')} />
         <Route path="driver/trips" element={workspaceMode === 'driver' ? renderDriver('trips') : renderPassenger('home')} />
-        <Route path="driver/trips/:rideId" element={workspaceMode === 'driver' ? <RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} driverLocation={driverLocation} backTarget="driver/trips" viewAsDriver /> : renderPassenger('home')} />
+        <Route path="driver/trips/:rideId" element={workspaceMode === 'driver' ? <RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} backTarget="driver/trips" viewAsDriver /> : renderPassenger('home')} />
         <Route path="driver/profile" element={workspaceMode === 'driver' ? renderDriver('profile') : renderPassenger('home')} />
         <Route path="admin" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} /> : renderPassenger('home')} />
         <Route path="admin/users" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} initialSection="users" /> : renderPassenger('home')} />
@@ -807,7 +806,7 @@ function RideRoute({ rides, setSelectedRide, payRide, paymentBusy, driverLocatio
   const { rideId } = useParams();
   const ride = rides.find(item => item.id === decodeURIComponent(rideId || ''));
   if (!ride) return <div className="mobile-frame"><div className="empty-card"><div className="empty-icon"><Search size={22}/></div><h2>Trip not found</h2><p>This trip is no longer available.</p><button className="primary-button" onClick={() => setSelectedRide(null)}>Return to trips</button></div></div>;
-  return <RideDetail ride={ride} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} backTarget={backTarget} viewAsDriver={viewAsDriver} />;
+  return <RideDetail ride={ride} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} backTarget={backTarget} viewAsDriver={viewAsDriver} />;
 }
 
 function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword }: { busy: boolean; onSignIn: (email: string, password: string) => Promise<boolean>; onSignUp: (name: string, email: string, password: string, role: 'passenger' | 'driver') => Promise<boolean>; onGoogleSignIn: () => Promise<boolean>; onResetPassword: (email: string) => Promise<boolean> }) {
@@ -865,7 +864,7 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword 
   </div>;
 }
 
-function VerificationScreen({ busy, firebaseUser, onVerified, onRefresh, onResend, onSignOut }: { busy: boolean; firebaseUser: any; onRefresh: () => Promise<void>; onResend: () => Promise<void>; onSignOut: () => Promise<void> }) {
+function VerificationScreen({ busy, firebaseUser, onVerified, onRefresh, onResend, onSignOut }: { busy: boolean; firebaseUser: any; onVerified: (refreshed: any) => Promise<void>; onRefresh: () => Promise<void>; onResend: () => Promise<void>; onSignOut: () => Promise<void> }) {
   const [checking, setChecking] = useState(false);
   const onVerifiedRef = useRef(onVerified);
   onVerifiedRef.current = onVerified;
@@ -897,10 +896,10 @@ function VerificationScreen({ busy, firebaseUser, onVerified, onRefresh, onResen
 function PassengerWorkspace(props: any) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { tab, setTab, profile, activeRide, myTrips, requestRide, updateRide, cancelRide, sendSOS, shareTrip, payRide, paymentBusy, saveProfile, profileBusy, notify, showRating, setShowRating, rating, setRating, review, setReview, submitRating, notificationsEnabled, enableNotifications, selectedRide, setSelectedRide, driverLocation } = props;
+  const { tab, setTab, profile, activeRide, myTrips, requestRide, cancelRide, sendSOS, shareTrip, payRide, paymentBusy, saveProfile, profileBusy, notify, showRating, setShowRating, rating, setRating, review, setReview, submitRating, notificationsEnabled, enableNotifications, selectedRide, setSelectedRide, driverLocation } = props;
   if (tab === 'request') return <RequestPageMap requestRide={requestRide} setTab={setTab} notify={notify} profile={profile} />;
-  if (selectedRide) return <RideDetail ride={selectedRide} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} />;
-  if (tab === 'trips') return <TripsPage trips={myTrips} setTab={setTab} setSelectedRide={(ride: Ride) => { setSelectedRide(ride); }} />;
+  if (selectedRide) return <RideDetail ride={selectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} />;
+  if (tab === 'trips') return <TripsPage trips={myTrips} setSelectedRide={setSelectedRide} />;
   if (tab === 'safety') return <SafetyPage activeRide={activeRide} profile={profile} sendSOS={sendSOS} shareTrip={shareTrip} setTab={setTab} notify={notify} />;
   if (tab === 'profile') return <ProfilePage profile={profile} saveProfile={saveProfile} profileBusy={profileBusy} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} setTab={setTab} />;
   return (
@@ -916,23 +915,6 @@ function PassengerWorkspace(props: any) {
   );
 }
 
-function RequestPage({ requestRide, setTab }: any) {
-  const [pickup, setPickup] = useState('Current location');
-  const [destination, setDestination] = useState('');
-  const [amount, setAmount] = useState(2000);
-  return <div className="mobile-frame">
-    <section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">NEW RIDE</div><h2>Request a ride</h2></div></section>
-    <div className="map-card"><div className="map-grid"><span className="map-pin pickup"><MapPin size={21} /></span><span className="map-pin destination"><MapPin size={21} /></span><div className="route-line" /></div><div className="map-caption"><span>{pickup}</span><span>{destination || 'Destination'}</span></div></div>
-    <div className="form-card">
-      <label>Pickup location<input value={pickup} onChange={e => setPickup(e.target.value)} placeholder="Enter pickup point" /></label>
-      <label>Destination<input value={destination} onChange={e => setDestination(e.target.value)} placeholder="Where are you going?" /></label>
-      <label>Estimated fare<input type="number" min="0" value={amount} onChange={e => setAmount(Number(e.target.value))} /></label>
-      <p className="hint">Fare can be confirmed with the driver before the trip starts.</p>
-      <button className="primary-button full" disabled={!destination.trim()} onClick={() => requestRide(pickup, destination.trim(), amount)}>Confirm ride <ChevronRight size={18} /></button>
-    </div>
-  </div>;
-}
-
 function ActiveRideCard({ ride, driverLocation, onClick }: any) {
   return <section className="ride-card ride-card-map">
     <div className="card-top"><div><span className="eyebrow">CURRENT TRIP</span><strong className="ride-card-heading">{ride.status === 'Requested' ? 'Finding your driver' : ride.driver ? 'Driver assigned' : 'Ride in progress'}</strong></div><span className={'ride-status ' + ride.status.toLowerCase().replaceAll(' ', '-')}>{ride.status}</span></div>
@@ -945,7 +927,7 @@ function ActiveRideCard({ ride, driverLocation, onClick }: any) {
 function RoutePoint({ label, value, destination }: any) { return <div className="route-point"><span className={'dot ' + (destination ? 'destination-dot' : '')} /><div><small>{label}</small><strong>{value}</strong></div></div>; }
 function Feature({ icon, title, text }: any) { return <div className="feature-card"><div className="feature-icon">{icon}</div><strong>{title}</strong><p>{text}</p></div>; }
 
-function RideDetail({ ride, setSelectedRide, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips', viewAsDriver = false }: any) {
+function RideDetail({ ride, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips', viewAsDriver = false }: any) {
   const navigate = useNavigate();
   const detailLocation = useLocation();
   const fromHome = new URLSearchParams(detailLocation.search).get('from') === 'home';
@@ -975,12 +957,12 @@ function RideDetail({ ride, setSelectedRide, payRide, paymentBusy, driverLocatio
   </div>;
 }
 
-function TripsPage({ trips, setTab, setSelectedRide, workspace = 'rider' }: any) {
+function TripsPage({ trips, setSelectedRide, workspace = 'rider' }: any) {
   const navigate = useNavigate();
   const location = useLocation();
   const tripDetailTarget = workspace === 'driver' ? 'driver/trips/' : 'trips/';
   const backTarget = workspace === 'driver' ? 'driver' : '';
-  const openTrip = (ride: Ride) => { setSelectedRide(ride); navigateFromRoot(navigate, location.pathname, tripDetailTarget + encodeURIComponent(ride.id)); };
+  const openTrip = (ride: Ride) => { if (typeof setSelectedRide === 'function') setSelectedRide(ride); navigateFromRoot(navigate, location.pathname, tripDetailTarget + encodeURIComponent(ride.id)); };
   return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => navigateFromRoot(navigate, location.pathname, backTarget)}>←</button><div><div className="eyebrow">YOUR RIDES</div><h2>Trip history</h2></div></section>{trips.length ? trips.map((ride: Ride) => <button className="history-item" key={ride.id} onClick={() => openTrip(ride)}><div className="history-icon"><CarFront size={18} /></div><div><strong>{ride.destination}</strong><span>{ride.driver || 'Driver pending'} · {ride.status}</span></div><b>₦{ride.amount.toLocaleString()}</b></button>) : <div className="empty-card"><div className="empty-icon"><History size={22} /></div><h2>No trips yet</h2><p>Your completed and cancelled trips will appear here.</p></div>}</div>;
 }
 
@@ -1024,14 +1006,12 @@ function RatingModal({ rating, setRating, review, setReview, submit, close }: an
 }
 
 function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, updateRide, acceptRide, rejectRide, toggleOnline, notify, saveProfile, profile, driverLocation }: any) {
-  const navigate = useNavigate();
-  const location = useLocation();
   // Rides are keyed to the driver's user id (Ride.driverId). Matching on the
   // driver name alone hid trips whenever the name on the ride and the driver
   // profile drifted apart, which left drivers unable to open their trip details.
   const myDriverRides = rides.filter((r: Ride) => r.driverId === driver.userId || (r.driver && r.driver === driver.name));
   if (tab === 'requests') return <DriverRequests requests={requests} driver={driver} acceptRide={acceptRide} rejectRide={rejectRide} setTab={setTab} toggleOnline={toggleOnline} />;
-  if (tab === 'trips') return <TripsPage trips={myDriverRides} setTab={setTab} workspace="driver" />;
+  if (tab === 'trips') return <TripsPage trips={myDriverRides} workspace="driver" />;
   if (tab === 'profile') return <DriverProfilePage profile={{...profile, role:'driver'}} driver={driver} saveProfile={saveProfile} notify={notify} setTab={setTab} />;
   const hasPayoutAccount = Boolean(driver.payoutSubaccountCode);
   return <div className="mobile-frame"><section className="hero-copy"><div className="eyebrow">DRIVER</div><h1>Good morning,<br /><strong>{driver.name.split(' ')[0]} 👋</strong></h1><p>Verified drivers keep every ride accountable.</p></section><div className="online-card"><div><span className={'status-dot ' + (driver.online ? '' : 'offline')} /> {driver.online ? 'Online' : 'Offline'}</div><button onClick={toggleOnline} disabled={!hasPayoutAccount}>{driver.online ? 'Go offline' : 'Go online'}</button></div><div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">VERIFICATION</span><strong>{driver.verified ? 'Verified driver' : 'Verification pending'}</strong><p>Government ID and tricycle registration status is stored on your driver record.</p></div></div>{!hasPayoutAccount && <div className="form-card"><span className="eyebrow">ACTION REQUIRED</span><strong>Add your payout account</strong><p>Add the bank account that receives your earnings. Drivers without a payout account cannot go online or accept rides.</p><button className="primary-button full" onClick={() => setTab('profile')}>Add payout account <ChevronRight size={18} /></button></div>}{activeRide && activeRide.driverId === driver.userId ? <ActiveDriverRide ride={activeRide} updateRide={updateRide} notify={notify} driverLocation={driverLocation} /> : <div className="empty-card"><div className="empty-icon"><CarFront size={22} /></div><h2>{driver.online ? 'Waiting for requests' : 'You are offline'}</h2><p>{driver.online ? 'New passenger requests will appear in Ride requests.' : 'Go online to receive ride requests.'}</p><button className="primary-button" onClick={() => setTab('requests')}>View requests <ChevronRight size={18} /></button></div>}<BottomNav tab={tab} setTab={setTab} driver /></div>;
@@ -1059,33 +1039,66 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab }: any
 
 function PayoutAccountSection({ driver, notify }: any) {
   const [banks, setBanks] = useState<{ name: string; code: string }[]>([]);
+  const [banksLoading, setBanksLoading] = useState(true);
+  const [banksError, setBanksError] = useState('');
+  const [banksStale, setBanksStale] = useState(false);
   const [bankCode, setBankCode] = useState(driver.payoutBankCode || '');
+  const [bankSearch, setBankSearch] = useState('');
+  const [bankPickerOpen, setBankPickerOpen] = useState(false);
   const [accountNumber, setAccountNumber] = useState(driver.payoutAccountNumber || '');
   const [accountName, setAccountName] = useState(driver.payoutAccountName || '');
   const [busy, setBusy] = useState<'resolve' | 'save' | null>(null);
-  const saved = Boolean(driver.payoutSubaccountCode);
+  const [persisted, setPersisted] = useState({
+    bankCode: driver.payoutBankCode || '',
+    accountNumber: driver.payoutAccountNumber || '',
+    accountName: driver.payoutAccountName || '',
+    subaccountCode: driver.payoutSubaccountCode || '',
+  });
+  const normalizedAccountNumber = accountNumber.replace(/\s+/g, '');
+  const saved = Boolean(persisted.subaccountCode);
+  const alreadySaved = saved && bankCode === persisted.bankCode && normalizedAccountNumber === persisted.accountNumber;
+  const selectedBank = banks.find(bank => bank.code === bankCode);
+  const filteredBanks = useMemo(() => {
+    const query = bankSearch.trim().toLocaleLowerCase();
+    if (!query) return banks;
+    return banks.filter(bank => bank.name.toLocaleLowerCase().includes(query) || bank.code.toLocaleLowerCase().includes(query));
+  }, [banks, bankSearch]);
 
-  useEffect(() => {
-    let mounted = true;
-    api.get('/api/payments/banks').then(res => {
-      if (mounted && Array.isArray(res.data?.banks)) setBanks(res.data.banks);
-    }).catch(() => { /* bank list is optional; driver can retry */ });
-    return () => { mounted = false; };
+  const loadBanks = useCallback(async () => {
+    setBanksLoading(true);
+    setBanksError('');
+    try {
+      const res = await api.get('/api/payments/banks');
+      const loadedBanks = Array.isArray(res.data?.banks) ? res.data.banks : [];
+      if (!loadedBanks.length) throw new Error('Paystack returned no banks. Please retry.');
+      setBanks(loadedBanks);
+      setBanksStale(Boolean(res.data?.stale));
+    } catch (error: any) {
+      setBanksError(error?.message || 'Could not load banks from Paystack. Check your connection and retry.');
+    } finally {
+      setBanksLoading(false);
+    }
   }, []);
 
+  useEffect(() => { void loadBanks(); }, [loadBanks]);
+
   const resolveAccount = async () => {
-    if (!/^\d{10}$/.test(accountNumber.replace(/\s+/g, '')) || !bankCode) {
+    if (!/^\d{10}$/.test(normalizedAccountNumber) || !bankCode) {
       notify('Enter a 10-digit account number and select a bank.');
       return;
     }
+    const accountToVerify = normalizedAccountNumber;
+    const bankToVerify = bankCode;
+    setBankPickerOpen(false);
     setBusy('resolve');
+    setAccountName('');
     try {
-      const res = await api.post('/api/payments/banks/resolve', { accountNumber, bankCode });
+      const res = await api.post('/api/payments/banks/resolve', { accountNumber: accountToVerify, bankCode: bankToVerify });
       if (res.data?.accountName) {
         setAccountName(res.data.accountName);
-        notify('Account confirmed: ' + res.data.accountName);
+        notify('Account confirmed. Review the name before saving.');
       } else {
-        notify('Could not confirm that account. Check the details.');
+        notify('Paystack could not confirm the account name. Check the details.');
       }
     } catch (error: any) {
       notify(error?.message || 'Could not verify that bank account');
@@ -1095,15 +1108,31 @@ function PayoutAccountSection({ driver, notify }: any) {
   };
 
   const saveAccount = async () => {
-    if (!accountName) {
-      notify('Confirm the account name first.');
+    if (!accountName || !/^\d{10}$/.test(normalizedAccountNumber) || !bankCode) {
+      notify('Select a bank and verify the 10-digit account number first.');
       return;
     }
+    const accountToSave = normalizedAccountNumber;
+    const bankToSave = bankCode;
+    const accountNameToSave = accountName;
+    const bankNameToSave = selectedBank?.name || (persisted.bankCode === bankCode ? driver.payoutBankName || '' : '');
     setBusy('save');
     try {
-      const bank = banks.find(b => b.code === bankCode);
-      await api.put('/api/driver/me/payout-account', { accountNumber, bankCode, bankName: bank?.name || '', accountName });
-      notify('Payout account saved. Fares will be split to this account.');
+      const res = await api.put('/api/driver/me/payout-account', {
+        accountNumber: accountToSave,
+        bankCode: bankToSave,
+        bankName: bankNameToSave,
+        accountName: accountNameToSave,
+      });
+      const savedDriver = res.data?.driver;
+      setAccountName(savedDriver?.payoutAccountName || accountNameToSave);
+      setPersisted({
+        bankCode: bankToSave,
+        accountNumber: accountToSave,
+        accountName: savedDriver?.payoutAccountName || accountNameToSave,
+        subaccountCode: savedDriver?.payoutSubaccountCode || 'saved',
+      });
+      notify('Payout account saved. Paystack will split paid fares according to the configured commission.');
     } catch (error: any) {
       notify(error?.message || 'Could not save the payout account');
     } finally {
@@ -1111,13 +1140,43 @@ function PayoutAccountSection({ driver, notify }: any) {
     }
   };
 
-  return <div className="form-card"><span className="eyebrow">PAYOUT ACCOUNT</span><p className="muted">Fares are split automatically: you receive your share directly in this bank account after each paid trip.</p>
-    <label>Bank<select value={bankCode} onChange={e => { setBankCode(e.target.value); setAccountName(''); }}><option value="">Select your bank</option>{banks.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}</select></label>
-    <label>Account number<input value={accountNumber} onChange={e => { setAccountNumber(e.target.value.replace(/[^\d\s]/g, '')); setAccountName(''); }} placeholder="10-digit account number" inputMode="numeric" /></label>
-    <button className="secondary-button full" disabled={busy !== null || !bankCode || !/^\d{10}$/.test(accountNumber.replace(/\s+/g, ''))} onClick={resolveAccount}>{busy === 'resolve' ? 'Checking…' : 'Check account name'}</button>
-    {accountName && <div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">CONFIRMED</span><strong>{accountName}</strong><p>Save to receive your ride earnings here.</p></div></div>}
-    <button className="primary-button full" disabled={busy !== null || !accountName || (saved && accountNumber === (driver.payoutAccountNumber || '') && bankCode === (driver.payoutBankCode || ''))} onClick={saveAccount}>{busy === 'save' ? 'Saving…' : saved ? 'Update payout account' : 'Save payout account'}</button>
-  </div>;
+  const maskAccount = (value: string) => value ? `••••••${value.replace(/\s+/g, '').slice(-4)}` : '';
+
+  return <section className="form-card payout-card">
+    <div className="payout-card-heading"><div className="payout-icon"><CreditCard size={19} /></div><div><span className="eyebrow">DRIVER EARNINGS</span><h3>Payout bank account</h3></div></div>
+    <p className="muted payout-intro">Choose the bank account where your share of completed, paid trips should settle. Tridash uses Paystack to verify the account before saving.</p>
+
+    {saved && persisted.accountNumber && <div className="payout-saved-summary"><div className="payout-saved-icon"><CheckCircle2 size={17} /></div><div className="payout-saved-copy"><strong>Saved payout account</strong><span>{(selectedBank?.name && bankCode === persisted.bankCode ? selectedBank.name : driver.payoutBankName || 'Bank account')} · {maskAccount(persisted.accountNumber)}</span><small>Account name: {persisted.accountName || driver.payoutAccountName}</small></div><span className="payout-saved-status">Saved</span></div>}
+
+    <div className="payout-form-section">
+      <label className="payout-field-label">Bank</label>
+      <div className="bank-picker">
+        <button type="button" className={`bank-picker-trigger ${bankPickerOpen ? 'is-open' : ''}`} onClick={() => { setBankPickerOpen(open => !open); setBankSearch(''); }} aria-expanded={bankPickerOpen} aria-haspopup="listbox" disabled={busy !== null || (banksLoading && banks.length === 0)}>
+          <span className="bank-picker-selected"><span className="bank-picker-symbol"><Landmark size={17} /></span><span><strong>{selectedBank?.name || (bankCode ? (driver.payoutBankName || 'Previously saved bank') : 'Select your bank')}</strong><small>{selectedBank ? `Bank code ${selectedBank.code}` : banksLoading ? 'Loading banks from Paystack…' : 'Search Paystack’s Nigerian bank list'}</small></span></span>
+          <ChevronDown size={18} />
+        </button>
+        {bankPickerOpen && <div className="bank-picker-menu" role="listbox" aria-label="Nigerian banks">
+          <div className="bank-picker-search"><Search size={16} /><input autoFocus disabled={busy !== null} value={bankSearch} onChange={e => setBankSearch(e.target.value)} placeholder="Search bank name or code" aria-label="Search bank name or code" /></div>
+          {banksLoading && <div className="bank-picker-message"><RefreshCw size={15} className="spin" /> Loading banks…</div>}
+          {!banksLoading && banksError && <div className="bank-picker-message bank-picker-error">{banksError}<button type="button" className="text-button-inline" onClick={() => void loadBanks()}>Retry</button></div>}
+          {!banksLoading && !banksError && filteredBanks.length === 0 && <div className="bank-picker-message">No banks match “{bankSearch}”. Try another name.</div>}
+          {!banksLoading && !banksError && filteredBanks.length > 0 && <div className="bank-picker-options">{filteredBanks.map(bank => <button type="button" role="option" aria-selected={bank.code === bankCode} key={bank.code} className={`bank-option ${bank.code === bankCode ? 'selected' : ''}`} disabled={busy !== null} onClick={() => { setBankCode(bank.code); setAccountName(''); setBankPickerOpen(false); setBankSearch(''); }}><span>{bank.name}<small>Code {bank.code}</small></span>{bank.code === bankCode && <Check size={16} />}</button>)}</div>}
+          <div className="bank-picker-footer">{banks.length ? `${banks.length} banks from Paystack` : 'Bank list unavailable'}{banksStale ? ' · showing last available list' : ''}</div>
+        </div>}
+      </div>
+      {banksLoading && banks.length === 0 && <p className="payout-help">Connecting securely to Paystack…</p>}
+      {banksError && banks.length === 0 && <div className="payout-inline-error"><AlertTriangle size={16} /><span>{banksError}</span><button type="button" className="text-button-inline" onClick={() => void loadBanks()}>Retry</button></div>}
+      {banksStale && banks.length > 0 && <p className="payout-help">Paystack is temporarily unavailable. Showing the most recently loaded bank list.</p>}
+    </div>
+
+    <label className="payout-field-label" htmlFor="payout-account-number">Account number</label>
+    <input id="payout-account-number" className="payout-account-input" value={accountNumber} disabled={busy !== null} onChange={e => { setAccountNumber(e.target.value.replace(/[^\d\s]/g, '').slice(0, 12)); setAccountName(''); }} placeholder="Enter 10-digit account number" inputMode="numeric" autoComplete="off" maxLength={12} aria-describedby="payout-account-hint" />
+    <p className="payout-help" id="payout-account-hint">Use the account number registered with your bank. Account verification is required before saving.</p>
+    {accountName && <div className="payout-account-confirm"><div className="verified-badge"><ShieldCheck size={18} /></div><div><span className="eyebrow">PAYSTACK VERIFIED ACCOUNT NAME</span><strong>{accountName}</strong><p>Please confirm this is your intended payout account before saving.</p></div></div>}
+
+    <div className="payout-actions"><button className="secondary-button full" disabled={busy !== null || banksLoading || !bankCode || !/^\d{10}$/.test(normalizedAccountNumber)} onClick={resolveAccount}>{busy === 'resolve' ? <><RefreshCw size={16} className="spin" /> Checking account…</> : <><ShieldCheck size={16} /> Verify account</>}</button><button className="primary-button full" disabled={busy !== null || !accountName || !/^\d{10}$/.test(normalizedAccountNumber) || !bankCode || alreadySaved} onClick={saveAccount}>{busy === 'save' ? <><RefreshCw size={16} className="spin" /> Saving…</> : saved ? 'Update payout account' : 'Save payout account'}</button></div>
+    <p className="payout-security-note"><ShieldCheck size={14} /> Your account details are sent to Paystack for verification and are not shown on public driver listings.</p>
+  </section>;
 }
 
 function ActiveDriverRide({ ride, updateRide, notify, driverLocation }: any) {

@@ -1,25 +1,48 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import prisma from '../utils/database';
-import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
+import { requireAuth, requireDriver, AuthenticatedRequest } from '../middleware/auth';
 import { getCommissionPercent } from '../utils/config';
 
 const router = Router();
 
-type PaystackTransaction = {
-  status?: string;
-  amount?: number | string;
-  currency?: string;
-  paid_at?: string;
-  channel?: string;
-  id?: string | number;
-};
-
 type PaystackResponse = {
   status?: boolean;
   message?: string;
-  data?: { authorization_url?: string } & PaystackTransaction;
+  data?: any;
+  meta?: { page?: number; pageCount?: number; total?: number; perPage?: number; next?: string };
 };
+
+type PaystackBank = { name: string; code: string; id?: number; slug?: string };
+
+const BANK_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+let bankCache: { banks: PaystackBank[]; fetchedAt: number } | null = null;
+
+async function fetchNigerianBanks(): Promise<PaystackBank[]> {
+  const allBanks: PaystackBank[] = [];
+  let page = 1;
+  let pageCount = 1;
+
+  // Paystack's List Banks endpoint uses page/perPage pagination. The `type=nip_bank`
+  // filter is not a general Nigerian-bank filter and can cause the request to fail.
+  do {
+    const result = await paystackRequest(
+      '/bank?country=nigeria&currency=NGN&perPage=100&page=' + page
+    );
+    const pageBanks = Array.isArray(result.data) ? result.data : [];
+    allBanks.push(...pageBanks);
+    pageCount = Number(result.meta?.pageCount || (pageBanks.length === 100 ? page + 1 : page));
+    page += 1;
+  } while (page <= pageCount && page <= 20);
+
+  const unique = new Map<string, PaystackBank>();
+  for (const bank of allBanks) {
+    const name = String(bank?.name || '').trim();
+    const code = String(bank?.code || '').trim();
+    if (name && code) unique.set(code, { name, code });
+  }
+  return [...unique.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 async function paystackRequest(path: string, options: RequestInit = {}): Promise<PaystackResponse> {
   const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -59,24 +82,32 @@ function getFrontendOrigin(): string {
   return process.env.FRONTEND_URL || 'http://localhost:5173';
 }
 
-// List Nigerian banks (NIP codes) for driver payout onboarding.
+// List Nigerian banks for driver payout onboarding. Cache the list to avoid
+// calling Paystack on every profile visit, but fall back to a stale successful
+// response if Paystack is temporarily unavailable.
 router.get('/banks', requireAuth(), async (_req, res) => {
+  const cacheIsFresh = bankCache && Date.now() - bankCache.fetchedAt < BANK_CACHE_TTL_MS;
+  if (cacheIsFresh) {
+    return res.json({ banks: bankCache!.banks, cached: true, stale: false });
+  }
+
   try {
-    const result = await paystackRequest('/bank?currency=NGN&country=nigeria&type=nip_bank');
-    const banks = (result.data as any[] || []).map((bank: any) => ({
-      name: bank.name,
-      code: bank.code,
-    }));
-    res.json({ banks });
+    const banks = await fetchNigerianBanks();
+    if (!banks.length) throw new Error('Paystack returned an empty bank list');
+    bankCache = { banks, fetchedAt: Date.now() };
+    return res.json({ banks, cached: false, stale: false });
   } catch (error: any) {
-    console.error('Paystack bank list error:', error);
-    res.status(502).json({ error: error?.message || 'Could not load the bank list' });
+    console.error('Paystack bank list error:', error?.message || error);
+    if (bankCache?.banks.length) {
+      return res.json({ banks: bankCache.banks, cached: true, stale: true });
+    }
+    return res.status(502).json({ error: 'Paystack could not load the bank list. Please retry in a moment.' });
   }
 });
 
 // Resolve a bank account number to its holder name so drivers can confirm
 // the payout account before it is saved.
-router.post('/banks/resolve', requireAuth(), async (req: AuthenticatedRequest, res) => {
+router.post('/banks/resolve', requireAuth(), requireDriver(), async (req: AuthenticatedRequest, res) => {
   try {
     const accountNumber = String(req.body?.accountNumber || '').replace(/\s+/g, '');
     const bankCode = String(req.body?.bankCode || '');
