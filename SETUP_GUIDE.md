@@ -153,3 +153,9 @@ The original AppDeploy runtime is no longer used. Never commit `.env` files, Fir
 The driver onboarding form collects home address (with a device-location reverse-geocoding option), emergency contact (optional; name and phone must be entered together), vehicle make/model/colour, registration number, operating state and primary operating area. The home address, date of birth, identity documents and emergency contact are not included in the passenger-facing driver list. When a ride is accepted, the ride stores a snapshot of the assigned vehicle make/model/colour so the passenger can identify it.
 
 After updating this version, apply all pending Prisma migrations with `npx prisma migrate deploy` from the server package/deployment context. Existing driver records will have blank values for the newly required vehicle and operating-area fields until the driver updates their onboarding form.
+
+## Public website pages
+
+The React app includes public, account-free pages at `/`, `/about`, `/how-it-works`, `/safety-info`, `/drive`, `/faq`, `/contact`, `/privacy`, and `/terms`. Sign-in and registration are available at `/login` and `/signup`; `/signup?role=driver` preselects driver registration. Shared trip links at `/shared-trip/:token` remain accessible without signing in. Passenger, driver, and admin workspaces remain behind authentication.
+
+Before public launch, configure an official support channel and complete legal review of the privacy and terms pages. They are intentionally marked as drafts where operator-specific retention, contact, legal and jurisdictional details are not yet confirmed. Verify that the production host rewrites direct requests for client-side routes to `index.html` so public pages work when opened or refreshed by URL.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from './api/client';
 import { ws } from './api/websocket';
 import { notifications } from './api/notifications';
@@ -706,9 +706,18 @@ function App() {
   const renderPassenger = (routeTab: Tab) => <PassengerWorkspace tab={routeTab} setTab={setTab} profile={profile} activeRide={activeForPassenger} myTrips={myTrips} requestRide={requestRide} cancelRide={cancelRide} sendSOS={sendSOS} shareTrip={shareTrip} driverLocation={driverLocation} payRide={payRide} paymentBusy={paymentBusy} saveProfile={saveProfile} profileBusy={profileBusy} notify={notify} showRating={showRating} setShowRating={setShowRating} rating={rating} setRating={setRating} review={review} setReview={setReview} submitRating={submitRating} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} selectedRide={selectedRide} setSelectedRide={setSelectedRide} />;
   const renderDriver = (routeTab: Tab) => <DriverWorkspace tab={routeTab} setTab={setTab} driver={driverProfile || drivers.find(d => d.userId === authUser?.userId) || { id: 'pending-driver', userId: authUser?.userId, name: profile.name || authUser?.name || 'Driver', phone: profile.phone || '', rating: 0, verified: false, online: false, tricycle: '', documents: [], status: 'pending' }} requests={requests} activeRide={activeRide} rides={rides} updateRide={updateRide} acceptRide={acceptRide} rejectRide={rejectRide} toggleOnline={toggleDriverOnline} notify={notify} saveProfile={saveProfile} profile={profile} driverLocation={driverLocation} setDriverProfile={setDriverProfile} />;
 
+  const publicContentPaths = ['/', '/about', '/how-it-works', '/safety-info', '/drive', '/faq', '/contact', '/privacy', '/terms'];
+  const isPublicContentPath = publicContentPaths.includes(location.pathname);
+  const isAuthPath = location.pathname === '/login' || location.pathname === '/signup';
+  const isSharedTripPath = location.pathname.startsWith('/shared-trip/');
+  const isPrivateAppPath = /^\/(request|trips|safety|profile|driver|admin)(\/|$)/.test(location.pathname);
+  if (isSharedTripPath) return <Routes><Route path="/shared-trip/:token" element={<SharedTripRoute />} /><Route path="*" element={<NotFoundPage />} /></Routes>;
+  if (isPublicContentPath && (!authUser || location.pathname !== '/')) return <PublicSite />;
+  if (!authUser && !isPublicContentPath && !isAuthPath && !isPrivateAppPath) return <NotFoundPage />;
   if (!authReady) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Checking your secure session…</p></div>;
   if (!authUser) return <AuthScreen busy={authBusy} onSignIn={signIn} onSignUp={signUp} onGoogleSignIn={signInGoogle} onResetPassword={resetPassword} />;
   if (!authUser.emailVerified) return <VerificationScreen busy={authBusy} firebaseUser={authUser.firebaseUser} onVerified={async (refreshed: any) => { setAuthBusy(true); try { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } finally { setAuthBusy(false); } }} onRefresh={async () => { setAuthBusy(true); try { const refreshed = await refreshFirebaseUser(authUser.firebaseUser); if (refreshed?.emailVerified) { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } else { notify('Your email is not verified yet. Open the verification link, then try again.'); } } catch (error: any) { notify(error?.message || 'We could not refresh your verification status.'); } finally { setAuthBusy(false); } }} onResend={async () => { try { await resendVerification(authUser.firebaseUser); notify('Verification email sent again. Check spam or junk if you do not see it.'); } catch (error: any) { notify(error?.message || 'Unable to resend the verification email.'); } }} onSignOut={async () => { await api.post('/api/auth/logout').catch(() => {}); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); }} />;
+  if (isAuthPath) return <Navigate replace to={authUser.role === 'admin' ? '/admin' : authUser.role === 'driver' ? '/driver' : '/'} />;
   if (loading) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Loading your safe-ride workspace…</p></div>;
 
   const switchWorkspace = (next: 'rider' | 'driver' | 'admin') => {
@@ -775,6 +784,68 @@ function App() {
   );
 }
 
+function PublicSite() {
+  const location = useLocation();
+  const path = location.pathname;
+  const pages: Record<string, { eyebrow: string; title: string; intro: string }> = {
+    '/about': { eyebrow: 'ABOUT TRIDASH', title: 'Local rides, with clarity at every step.', intro: 'Tridash is being built to make booking and managing tricycle rides simpler for passengers and drivers.' },
+    '/how-it-works': { eyebrow: 'HOW IT WORKS', title: 'From pickup to arrival, without the guesswork.', intro: 'A straightforward ride flow designed to keep passengers informed and drivers in control.' },
+    '/safety-info': { eyebrow: 'SAFETY FIRST', title: 'Safety is part of the ride, not an afterthought.', intro: 'Account controls, driver verification and trip information help make every journey more accountable.' },
+    '/drive': { eyebrow: 'DRIVE WITH TRIDASH', title: 'Bring your tricycle. Build your work around the road.', intro: 'Create a driver account, submit your details and documents, and complete review before accepting rides.' },
+    '/faq': { eyebrow: 'HELP CENTRE', title: 'Questions before your first ride?', intro: 'Here are answers to common questions about booking, payments, driver registration and safety.' },
+    '/contact': { eyebrow: 'CONTACT', title: 'We’re here to help you find the right next step.', intro: 'For account-specific trip support, sign in to access your Tridash workspace and its available support and safety tools.' },
+    '/privacy': { eyebrow: 'PRIVACY', title: 'Your information should be handled with care.', intro: 'This page explains the main categories of information the service may need. The final policy must be reviewed and completed before public launch.' },
+    '/terms': { eyebrow: 'TERMS OF USE', title: 'Clear expectations make better journeys.', intro: 'These are the core service expectations for passengers and drivers. The final terms should receive legal review before public launch.' }
+  };
+  const page = pages[path];
+  const isHome = path === '/';
+  useEffect(() => {
+    const title = isHome ? 'Tridash — Local rides, made more straightforward' : `${page?.eyebrow || 'TRIDASH'} | Tridash`;
+    document.title = title;
+    const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (description) description.content = isHome ? 'Explore Tridash, learn how local tricycle rides work, review safety information, and get started as a passenger or driver.' : (page?.intro || 'Learn more about Tridash local rides.');
+  }, [isHome, page?.eyebrow, page?.intro]);
+  return <div className="public-site">
+    <a className="skip-link" href="#public-main">Skip to main content</a>
+    <header className="public-header">
+      <div className="public-header-inner">
+        <Link to="/" className="public-brand" aria-label="Tridash home"><span className="public-brand-mark"><Zap size={19} fill="currentColor" aria-hidden="true" /></span><span>tridash</span></Link>
+        <nav className="public-nav" aria-label="Main navigation">
+          <Link to="/how-it-works" aria-current={path === '/how-it-works' ? 'page' : undefined}>How it works</Link>
+          <Link to="/safety-info" aria-current={path === '/safety-info' ? 'page' : undefined}>Safety</Link>
+          <Link to="/about" aria-current={path === '/about' ? 'page' : undefined}>About</Link>
+          <Link to="/faq" aria-current={path === '/faq' ? 'page' : undefined}>FAQs</Link>
+          <Link to="/drive" aria-current={path === '/drive' ? 'page' : undefined}>Become a driver</Link>
+        </nav>
+        <div className="public-header-actions"><Link className="public-login" to="/login">Sign in</Link><Link className="public-button public-button-small" to="/signup">Get started</Link></div>
+      </div>
+    </header>
+    <main id="public-main" className="public-main" tabIndex={-1}>
+      {isHome ? <>
+        <section className="public-hero">
+          <div className="public-hero-copy"><span className="public-kicker"><span className="public-kicker-dot" /> A simpler way to move locally</span><h1>Everyday rides.<br /><span>Made more straightforward.</span></h1><p>Book a tricycle ride, follow the trip, and see the details you need along the way. Tridash brings passengers and approved drivers into one clear experience.</p><div className="public-hero-actions"><Link className="public-button" to="/signup">Book a ride <ChevronRight size={18} aria-hidden="true" /></Link><Link className="public-button public-button-outline" to="/drive">Become a driver</Link></div><div className="public-trust-note"><ShieldCheck size={17} aria-hidden="true" /><span>Driver approval is required before drivers can accept rides.</span></div></div>
+          <div className="public-hero-visual" aria-hidden="true"><div className="public-orbit public-orbit-one" /><div className="public-orbit public-orbit-two" /><div className="public-ride-card"><div className="public-ride-card-top"><span className="public-mini-mark"><Zap size={14} aria-hidden="true" /></span><span>YOUR NEXT RIDE</span><span className="public-live-dot" /> </div><div className="public-route-line"><span className="public-route-point" /><div><small>PICKUP</small><strong>Your location</strong></div></div><div className="public-route-line public-route-destination"><span className="public-route-point" /><div><small>DESTINATION</small><strong>Where you’re going</strong></div></div><div className="public-ride-card-bottom"><span><ShieldCheck size={15} aria-hidden="true" /> Ride details in one place</span><CarFront size={25} aria-hidden="true" /></div></div><div className="public-floating-tag public-tag-one"><MapPin size={16} aria-hidden="true" /><span>Choose your pickup</span></div><div className="public-floating-tag public-tag-two"><CheckCircle2 size={16} aria-hidden="true" /><span>Know your driver</span></div></div>
+        </section>
+        <section className="public-value-section"><div className="public-section-heading"><span className="public-kicker">BUILT AROUND YOUR JOURNEY</span><h2>Less uncertainty. More clarity.</h2><p>The essentials are easy to find before, during and after a ride.</p></div><div className="public-feature-grid"><article className="public-feature-card"><span className="public-feature-icon"><MapPin aria-hidden="true" /></span><h3>Set your trip</h3><p>Enter pickup and destination details before requesting a ride.</p></article><article className="public-feature-card"><span className="public-feature-icon"><ShieldCheck aria-hidden="true" /></span><h3>Driver review</h3><p>Driver onboarding includes identity, licence and vehicle-document review.</p></article><article className="public-feature-card"><span className="public-feature-icon"><CreditCard aria-hidden="true" /></span><h3>Online payments</h3><p>Pay through the supported online payment flow—Tridash does not offer cash rides.</p></article></div></section>
+        <section className="public-driver-cta"><div><span className="public-kicker">FOR DRIVERS</span><h2>Ready to drive with Tridash?</h2><p>Start your driver application and complete the required details and verification steps.</p></div><Link className="public-button public-button-light" to="/signup?role=driver">Start driver registration <ChevronRight size={18} aria-hidden="true" /></Link></section>
+      </> : <>
+        <section className="public-page-hero"><div className="public-page-hero-inner"><span className="public-kicker">{page?.eyebrow || 'TRIDASH'}</span><h1>{page?.title || 'Welcome to Tridash.'}</h1><p>{page?.intro || 'A clearer way to organise local rides.'}</p>{path === '/drive' && <Link className="public-button" to="/signup?role=driver">Create a driver account <ChevronRight size={18} aria-hidden="true" /></Link>}{path === '/contact' && <Link className="public-button" to="/login">Sign in for account support <ChevronRight size={18} aria-hidden="true" /></Link>}</div></section>
+        <section className="public-content-section">
+          {path === '/about' && <><h2>What we’re building</h2><p>Tridash is a ride-hailing service designed around local tricycle trips. The goal is to give passengers a clear booking flow and give drivers a dedicated workspace for requests, trips and account verification.</p><h2>Designed for both sides of the trip</h2><p>Passengers can manage ride requests and trip details. Drivers can review requests, manage their availability after approval, and keep track of their rides.</p></>}
+          {path === '/how-it-works' && <div className="public-steps-grid"><article><span>01</span><h2>Create an account</h2><p>Register as a passenger or choose the driver path if you want to apply to drive.</p></article><article><span>02</span><h2>Enter your trip</h2><p>Passengers provide pickup and destination details and review the available trip information.</p></article><article><span>03</span><h2>Confirm online payment</h2><p>Use the supported online payment flow. A ride is not paid for with cash.</p></article><article><span>04</span><h2>Follow the ride</h2><p>Use your trip page to review status and the assigned driver and vehicle details when available.</p></article></div>}
+          {path === '/safety-info' && <><h2>Driver verification</h2><p>Drivers must complete the required onboarding and approval process before they can go online and accept rides. Document checks may include government identification, a driving licence and vehicle registration.</p><h2>Trip visibility</h2><p>Trip details help passengers recognise their assigned driver and vehicle. Use the in-app safety options if you need help during a trip.</p><h2>Location and privacy</h2><p>Location access should be used for features that need it, such as choosing a pickup or following an active trip. A home address is private account information and should not appear on the passenger-facing profile.</p><p className="public-notice"><ShieldCheck size={18} aria-hidden="true" /> Safety features and verification availability may depend on configured integrations and review status. Do not assume a document has been independently verified solely because it was uploaded.</p></>}
+          {path === '/drive' && <><h2>What you’ll need</h2><ul><li>Your personal and contact details.</li><li>Your home address for private account records.</li><li>Vehicle make, model, colour, registration number and operating area.</li><li>Required identity, driver’s licence and vehicle documents.</li><li>Any additional permits or insurance information requested during onboarding.</li></ul><h2>What happens next?</h2><p>Submit your information and documents for review. You must be approved before going online and accepting passenger requests.</p></>}
+          {path === '/faq' && <div className="public-faq-list"><details><summary>Can I use Tridash without creating an account?</summary><p>You can browse these public pages without an account. You’ll need to sign in or create an account to use ride-booking and workspace features.</p></details><details><summary>Can I pay the driver in cash?</summary><p>No. Tridash is configured for online payments only.</p></details><details><summary>How can I become a driver?</summary><p>Choose “Become a driver”, create an account with the driver role, and complete the required personal, vehicle and verification details.</p></details><details><summary>Can I go online immediately after registering?</summary><p>No. Driver approval is required before a driver can go online and accept rides.</p></details><details><summary>Will passengers see my home address?</summary><p>No. A driver's home address is private account information and should not be displayed in passenger-facing trip details.</p></details><details><summary>What if I need help during a trip?</summary><p>Open your trip and use the available in-app safety options. For account-specific assistance, sign in to your Tridash workspace.</p></details></div>}
+          {path === '/contact' && <><h2>Account and trip help</h2><p>Sign in to access your ride history, active trip information and the safety tools available in your workspace.</p><div className="public-contact-options"><Link to="/login"><UserRound aria-hidden="true" /><span><strong>Passenger or driver support</strong><small>Sign in to access your account and trip details.</small></span><ChevronRight aria-hidden="true" /></Link><Link to="/safety-info"><ShieldCheck aria-hidden="true" /><span><strong>Safety information</strong><small>Review driver approval and trip safety guidance.</small></span><ChevronRight aria-hidden="true" /></Link></div><p className="public-muted-note">Official public support contact details will be published here when an official support channel is available.</p></>}
+          {path === '/privacy' && <><p><strong>Draft notice:</strong> This is a product-information summary, not a final legal privacy policy. Complete and legally review the policy before launch.</p><h2>Information the service may process</h2><ul><li>Account and contact details, such as name, email and phone number.</li><li>Trip details, including pickup, destination, status and payment status.</li><li>Location information when you use location-based ride features.</li><li>Driver verification documents and vehicle information submitted during onboarding.</li><li>Emergency contact details if you choose to provide them.</li></ul><h2>Why information is used</h2><p>Information is used to operate accounts, request and manage rides, support online payments, review driver applications, improve safety and respond to support needs.</p><h2>Sharing and access</h2><p>Information should be shared only as needed to operate the service—for example, relevant trip and vehicle details with the people involved in that trip, or required information with payment and verification providers. Access to sensitive documents and private account details should be restricted.</p><h2>Items to finalise before launch</h2><p>The operator must publish accurate retention periods, legal bases, data-subject request instructions, contact details, processor/vendor details and applicable jurisdiction-specific notices.</p></>}
+          {path === '/terms' && <><p><strong>Draft notice:</strong> These service expectations are a starting point, not final legal terms. Review and approve the full terms before launch.</p><h2>Using Tridash</h2><p>Provide accurate account and trip information, keep account access secure, and use the service lawfully and respectfully.</p><h2>Ride requests and payments</h2><p>Review the trip details before confirming. Tridash is configured for online payments only. A payment should be treated as complete only after the payment provider and Tridash confirm it.</p><h2>Driver accounts</h2><p>Drivers must provide accurate personal and vehicle information, submit the required documents and receive approval before going online or accepting rides. Approval may be withheld or withdrawn when required checks are incomplete or an account violates service rules.</p><h2>Cancellations and safety</h2><p>Use the in-app controls to manage or cancel eligible trips. Follow safety guidance and report concerns through available service channels.</p><h2>Before public launch</h2><p>Publish complete rules for eligibility, fares, cancellations, refunds, complaints, prohibited conduct, account suspension, liability, governing law and support contact details.</p></>}
+        </section>
+      </>}
+    </main>
+    <footer className="public-footer"><div className="public-footer-top"><div className="public-footer-brand"><Link to="/" className="public-brand"><span className="public-brand-mark"><Zap size={19} fill="currentColor" aria-hidden="true" /></span><span>tridash</span></Link><p>Local rides, made more straightforward.</p></div><div className="public-footer-links"><div><strong>Explore</strong><Link to="/how-it-works">How it works</Link><Link to="/safety-info">Safety</Link><Link to="/about">About</Link><Link to="/faq">FAQs</Link></div><div><strong>Get started</strong><Link to="/signup">Book a ride</Link><Link to="/drive">Become a driver</Link><Link to="/contact">Contact</Link><Link to="/login">Sign in</Link></div><div><strong>Legal</strong><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link></div></div></div><div className="public-footer-bottom"><span>© {new Date().getFullYear()} Tridash</span><span>Built for clearer local journeys.</span></div></footer>
+  </div>;
+}
+
 function NotFoundPage() {
   const navigate = useNavigate();
   return <div className="mobile-frame"><div className="empty-card not-found-card"><div className="empty-icon"><Search size={24}/></div><div className="eyebrow">404</div><h2>Page not found</h2><p>The Tridash page you requested does not exist or may have moved.</p><button className="primary-button" onClick={() => navigate('..')}>Return to Tridash</button></div></div>;
@@ -824,13 +895,22 @@ function RideRoute({ rides, setSelectedRide, payRide, paymentBusy, driverLocatio
 }
 
 function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword }: { busy: boolean; onSignIn: (email: string, password: string) => Promise<boolean>; onSignUp: (name: string, email: string, password: string, role: 'passenger' | 'driver') => Promise<boolean>; onGoogleSignIn: () => Promise<boolean>; onResetPassword: (email: string) => Promise<boolean> }) {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const authLocation = useLocation();
+  const [mode, setMode] = useState<'signin' | 'signup'>(authLocation.pathname === '/signup' ? 'signup' : 'signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'passenger' | 'driver'>('passenger');
+  const [role, setRole] = useState<'passenger' | 'driver'>(new URLSearchParams(authLocation.search).get('role') === 'driver' ? 'driver' : 'passenger');
   const [errorText, setErrorText] = useState('');
   const [forgotMode, setForgotMode] = useState(false);
+
+  useEffect(() => {
+    setMode(authLocation.pathname === '/signup' ? 'signup' : 'signin');
+    const requestedRole = new URLSearchParams(authLocation.search).get('role');
+    setRole(requestedRole === 'driver' ? 'driver' : 'passenger');
+    setErrorText('');
+    setForgotMode(false);
+  }, [authLocation.pathname, authLocation.search]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -857,7 +937,7 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword 
 
   return <div className="auth-shell">
     <div className="auth-panel">
-      <div className="auth-brand"><span className="brand-mark"><Zap size={18} /></span><strong>tridash</strong></div>
+      <Link className="auth-brand auth-brand-link" to="/" aria-label="Tridash home"><span className="brand-mark"><Zap size={18} /></span><strong>tridash</strong></Link>
       <div className="eyebrow">SAFE RIDE ACCESS</div>
       <h1>{mode === 'signin' ? 'Welcome back.' : 'Create your Tridash account.'}</h1>
       <p className="auth-intro">Sign in directly to Tridash with Firebase. You do not need an AppDeploy account.</p>
