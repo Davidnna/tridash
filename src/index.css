@@ -108,3 +108,10 @@
 .payout-actions .secondary-button,.payout-actions .primary-button{min-height:47px;border-radius:13px}
 .payout-security-note{background:#F7FAF8;border-radius:10px;padding:10px;margin-top:14px}
 @media(max-width:520px){.bank-picker-options{max-height:235px}.bank-logo{width:34px;height:34px;flex-basis:34px}.bank-logo-large{width:42px;height:42px;flex-basis:42px}.payout-account-input-wrap{padding:0 11px}}
+
+/* Bank-logo catalogue: show institution marks instead of guessed initials. */
+.bank-logo img{width:27px;height:27px;object-fit:contain;display:block}
+.bank-logo-large img{width:32px;height:32px}
+.bank-logo>svg{width:20px;height:20px;stroke-width:1.8;color:#547563}
+.bank-logo-large>svg{width:24px;height:24px}
+.bank-option-copy{display:block;flex:1;min-width:0;font-size:12px;font-weight:600;overflow-wrap:anywhere}

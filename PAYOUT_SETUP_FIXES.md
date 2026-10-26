@@ -22,3 +22,6 @@
 ## Security
 
 This clean source archive intentionally excludes `.env` files, `.git`, `node_modules`, generated `dist` folders, and local AppDeploy authentication files. Configure environment variables separately using `server/.env.example` as a template.
+
+
+Bank logo display update: the payout form now matches bank names/codes against a maintained Nigerian institution logo catalogue. A generic bank icon is used only if a matching logo or fallback image cannot load. The picker does not mention the source of its bank list.

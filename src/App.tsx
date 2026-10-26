@@ -8,7 +8,7 @@ import RequestPageMap from './RequestPageMap';
 import { firebaseAuth, onAuthStateChanged, resendVerification, refreshFirebaseUser, sendResetEmail, signInWithFirebase, signInWithGoogle, signOut, signUpWithFirebase } from './firebase';
 import {
   Activity, AlertTriangle, Bell, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3,
-  CreditCard, FileCheck2, History, Home, LogOut, MapPin, MessageSquareWarning,
+  CreditCard, FileCheck2, History, Home, Landmark, LogOut, MapPin, MessageSquareWarning,
   Navigation, Phone, Search, Settings, Shield, ShieldAlert, ShieldCheck, Star, RefreshCw,
   UserRound, Users, X, Zap
 } from 'lucide-react';
@@ -1037,48 +1037,81 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab }: any
   return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">DRIVER ONBOARDING</div><h2>Driver profile</h2></div></section><div className="form-card"><label>Full name<input value={form.name} onChange={e => setForm({...form,name:e.target.value})} /></label><label>Phone<input value={form.phone} onChange={e => setForm({...form,phone:e.target.value})} placeholder="080..." /></label><label>Tricycle registration<input value={form.tricycle} onChange={e => setForm({...form,tricycle:e.target.value.toUpperCase()})} placeholder="EB-123-XY" /></label><label>Government ID<input value={form.governmentId} onChange={e => setForm({...form,governmentId:e.target.value})} placeholder="ID number or submitted" /></label><label>Registration document<input value={form.registration} onChange={e => setForm({...form,registration:e.target.value})} placeholder="Registration number or submitted" /></label><button className="primary-button full" onClick={submit}>Save & submit for verification</button></div><div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">STATUS</span><strong>{driver.verified ? 'Verified driver' : 'Pending admin verification'}</strong><p>{driver.verified ? 'You can go online and accept passenger requests.' : 'An administrator must verify your government ID and tricycle registration before you can accept rides.'}</p></div></div><PayoutAccountSection driver={driver} notify={notify} /></div>;
 }
 
-const BANK_LOGO_DOMAINS: Array<[string, string]> = [
-  // Nigerian commercial banks
-  ['access bank', 'accessbankplc.com'], ['gtbank', 'gtbank.com'], ['guaranty trust', 'gtbank.com'],
-  ['zenith', 'zenithbank.com'], ['first bank', 'firstbanknigeria.com'], ['firstbank', 'firstbanknigeria.com'],
-  ['united bank for africa', 'ubagroup.com'], ['uba', 'ubagroup.com'], ['fidelity', 'fidelitybank.ng'],
-  ['fcmb', 'fcmb.com'], ['stanbic', 'stanbicibtcbank.com'], ['wema', 'wemabank.com'],
-  ['sterling', 'sterling.ng'], ['union bank', 'unionbankng.com'], ['polaris', 'polarisbanklimited.com'],
-  ['ecobank', 'ecobank.com'], ['keystone', 'keystonebankng.com'], ['jaiz', 'jaizbankplc.com'],
-  ['unity bank', 'unitybankng.com'], ['providus', 'providusbank.com'], ['titan trust', 'titantrustbank.com'],
-  ['parallex', 'parallexbank.com'], ['premium trust', 'premiumtrustbank.com'], ['globus', 'globusbank.com'],
-  ['citibank', 'citibank.com'], ['standard chartered', 'sc.com'], ['heritage', 'heritagebank.com.ng'],
-  ['suntrust', 'suntrustng.com'], ['coronation', 'coronationmb.com'], ['lotus bank', 'lotusbank.com'],
-  ['optimus', 'optimusbank.com'], ['signature bank', 'signaturebankng.com'], ['living trust', 'livingtrustmfb.com'],
-  ['rand merchant', 'randmerchantbank.com'], ['fmbn', 'fmbn.com.ng'], ['bank of industry', 'boi.ng'],
-  ['development bank of nigeria', 'dbn.com.ng'], ['afriland', 'afrilandfirstbank.com'],
-  // Digital banks, payment banks and fintech wallets commonly returned by Paystack
-  ['opay', 'opayweb.com'], ['9 payment service', '9psb.com.ng'], ['9psb', '9psb.com.ng'],
-  ['moniepoint', 'moniepoint.com'], ['kuda', 'kuda.com'], ['palmpay', 'palmpay.com'],
-  ['paga', 'mypaga.com'], ['carbon', 'getcarbon.co'], ['fairmoney', 'fairmoney.io'],
-  ['smartcash', 'smartcashpsb.ng'], ['sparkle', 'sparkle.ng'], ['rubies', 'rubies.ng'],
-  ['eyowo', 'eyowo.com'], ['vfd', 'vfdbank.com'], ['vbank', 'vbank.ng'],
-  ['mint', 'mintyn.com'], ['tangerine', 'tangerine.africa'], ['paycom', 'paycom.ng'],
-  ['paystack', 'paystack.com'], ['flutterwave', 'flutterwave.com'], ['interswitch', 'interswitchgroup.com'],
-  ['mutual benefits', 'mutualbenefitsnigeria.com'], ['bowen', 'bowenmfbank.com'],
-  ['infinity', 'infinitymfb.com'], ['fortis', 'fortisbank.com.ng'], ['anchor', 'anchor.ng'],
-  ['quickfund', 'quickfundmfb.com'], ['unical', 'unicalmfb.com'], ['bainescredit', 'bainescredit.com'],
-  ['premium trust', 'premiumtrustbank.com'], ['parallex', 'parallexbank.com'],
-];
+type BankLogoEntry = {
+  name: string;
+  aliases?: string[];
+  bankCode?: string;
+  scCode?: string;
+  logos?: { svg?: string; png?: string };
+};
 
-function BankLogo({ name, size = 'normal' }: { name: string; size?: 'normal' | 'large' }) {
-  const [sourceIndex, setSourceIndex] = useState(0);
-  const normalizedName = name.toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const domain = BANK_LOGO_DOMAINS.find(([alias]) => normalizedName.includes(alias))?.[1];
-  const initials = name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'BK';
-  const logoSources = domain ? [
-    `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`,
-    `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`,
-  ] : [];
+const BANK_LOGO_INDEX_URL = 'https://cdn.jsdelivr.net/gh/Nigerian-Bank-Logos/ng-bank-logos@main/dist/banks_NGN.json';
+const BANK_LOGO_FALLBACK_URL = 'https://cdn.jsdelivr.net/gh/Nigerian-Bank-Logos/ng-bank-logos@main/logos/_default.svg';
+let bankLogoIndexRequest: Promise<BankLogoEntry[]> | null = null;
+
+function loadBankLogoIndex(): Promise<BankLogoEntry[]> {
+  if (!bankLogoIndexRequest) {
+    bankLogoIndexRequest = fetch(BANK_LOGO_INDEX_URL)
+      .then(response => {
+        if (!response.ok) throw new Error('Could not load bank logos');
+        return response.json();
+      })
+      .then(payload => Array.isArray(payload?.banks) ? payload.banks as BankLogoEntry[] : [])
+      .catch(() => {
+        bankLogoIndexRequest = null;
+        return [];
+      });
+  }
+  return bankLogoIndexRequest;
+}
+
+function normalizeBankLabel(value: string): string {
+  return value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+}
+
+function findBankLogo(name: string, code: string, entries: BankLogoEntry[]): string | null {
+  const targetName = normalizeBankLabel(name);
+  const targetCode = String(code || '').trim();
+  const digitsOnly = (value: string) => value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  const codeMatch = entries.find(entry => {
+    const candidates = [entry.bankCode, entry.scCode].filter(Boolean) as string[];
+    return targetCode && candidates.some(candidate => candidate === targetCode || digitsOnly(candidate) === digitsOnly(targetCode));
+  });
+  const nameMatch = codeMatch || entries.find(entry => {
+    const labels = [entry.name, ...(entry.aliases || [])].map(normalizeBankLabel);
+    return labels.some(label => label === targetName);
+  }) || entries.find(entry => {
+    const labels = [entry.name, ...(entry.aliases || [])].map(normalizeBankLabel);
+    return labels.some(label => label.length > 4 && (targetName.includes(label) || label.includes(targetName)));
+  });
+  return nameMatch?.logos?.svg || nameMatch?.logos?.png || null;
+}
+
+function BankLogo({ name, code = '', size = 'normal' }: { name: string; code?: string; size?: 'normal' | 'large' }) {
+  const [logoUrl, setLogoUrl] = useState(BANK_LOGO_FALLBACK_URL);
+  const [fallbackFailed, setFallbackFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLogoUrl(BANK_LOGO_FALLBACK_URL);
+    setFallbackFailed(false);
+    void loadBankLogoIndex().then(entries => {
+      if (!active) return;
+      const match = findBankLogo(name, code, entries);
+      if (match) setLogoUrl(match);
+    });
+    return () => { active = false; };
+  }, [name, code]);
+
+  const handleLogoError = () => {
+    if (logoUrl !== BANK_LOGO_FALLBACK_URL) setLogoUrl(BANK_LOGO_FALLBACK_URL);
+    else setFallbackFailed(true);
+  };
+
   return <span className={`bank-logo ${size === 'large' ? 'bank-logo-large' : ''}`} aria-hidden="true">
-    {sourceIndex < logoSources.length
-      ? <img src={logoSources[sourceIndex]} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setSourceIndex(index => index + 1)} />
-      : <span>{initials}</span>}
+    {!fallbackFailed
+      ? <img src={logoUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={handleLogoError} />
+      : <Landmark aria-hidden="true" />}
   </span>;
 }
 
@@ -1115,11 +1148,11 @@ function PayoutAccountSection({ driver, notify }: any) {
     try {
       const res = await api.get('/api/payments/banks');
       const loadedBanks = Array.isArray(res.data?.banks) ? res.data.banks : [];
-      if (!loadedBanks.length) throw new Error('Paystack returned no banks. Please retry.');
+      if (!loadedBanks.length) throw new Error('No banks are available right now. Please retry.');
       setBanks(loadedBanks);
       setBanksStale(Boolean(res.data?.stale));
     } catch (error: any) {
-      setBanksError(error?.message || 'Could not load banks from Paystack. Check your connection and retry.');
+      setBanksError(error?.message || 'Could not load banks. Check your connection and try again.');
     } finally {
       setBanksLoading(false);
     }
@@ -1189,7 +1222,7 @@ function PayoutAccountSection({ driver, notify }: any) {
 
   return <section className="form-card payout-card">
     <div className="payout-card-heading"><div className="payout-icon"><CreditCard size={19} /></div><div><span className="eyebrow">DRIVER EARNINGS</span><h3>Payout bank account</h3></div></div>
-    <p className="muted payout-intro">Choose the bank account where your share of completed, paid trips should settle. Tridash uses Paystack to verify the account before saving.</p>
+    <p className="muted payout-intro">Choose where your share of completed, paid trips should settle. Your account name is checked before saving.</p>
 
     {saved && persisted.accountNumber && <div className="payout-saved-summary"><div className="payout-saved-icon"><CheckCircle2 size={17} /></div><div className="payout-saved-copy"><strong>Saved payout account</strong><span>{(selectedBank?.name && bankCode === persisted.bankCode ? selectedBank.name : driver.payoutBankName || 'Bank account')} · {maskAccount(persisted.accountNumber)}</span><small>Account name: {persisted.accountName || driver.payoutAccountName}</small></div><span className="payout-saved-status">Saved</span></div>}
 
@@ -1197,7 +1230,7 @@ function PayoutAccountSection({ driver, notify }: any) {
       <label className="payout-field-label">Bank</label>
       <div className="bank-picker">
         <button type="button" className={`bank-picker-trigger ${bankPickerOpen ? 'is-open' : ''}`} onClick={() => { setBankPickerOpen(open => !open); setBankSearch(''); }} aria-expanded={bankPickerOpen} aria-haspopup="listbox" disabled={busy !== null || (banksLoading && banks.length === 0)}>
-          <span className="bank-picker-selected"><BankLogo name={selectedBank?.name || (bankCode ? (driver.payoutBankName || 'Previously saved bank') : 'Choose a bank')} size="large" /><span><strong>{selectedBank?.name || (bankCode ? (driver.payoutBankName || 'Previously saved bank') : 'Select your bank')}</strong><small>{selectedBank ? `Bank code ${selectedBank.code}` : banksLoading ? 'Loading banks from Paystack…' : 'Search Paystack’s Nigerian bank list'}</small></span></span>
+          <span className="bank-picker-selected"><BankLogo name={selectedBank?.name || (bankCode ? (driver.payoutBankName || 'Previously saved bank') : 'Choose a bank')} code={bankCode} size="large" /><span><strong>{selectedBank?.name || (bankCode ? (driver.payoutBankName || 'Previously saved bank') : 'Select your bank')}</strong><small>{selectedBank ? `Bank code ${selectedBank.code}` : banksLoading ? 'Loading banks…' : 'Search by bank name or code'}</small></span></span>
           <ChevronDown size={18} />
         </button>
         {bankPickerOpen && <div className="bank-picker-menu" role="listbox" aria-label="Nigerian banks">
@@ -1205,13 +1238,13 @@ function PayoutAccountSection({ driver, notify }: any) {
           {banksLoading && <div className="bank-picker-message"><RefreshCw size={15} className="spin" /> Loading banks…</div>}
           {!banksLoading && banksError && <div className="bank-picker-message bank-picker-error">{banksError}<button type="button" className="text-button-inline" onClick={() => void loadBanks()}>Retry</button></div>}
           {!banksLoading && !banksError && filteredBanks.length === 0 && <div className="bank-picker-message">No banks match “{bankSearch}”. Try another name.</div>}
-          {!banksLoading && !banksError && filteredBanks.length > 0 && <div className="bank-picker-options">{filteredBanks.map(bank => <button type="button" role="option" aria-selected={bank.code === bankCode} key={bank.code} className={`bank-option ${bank.code === bankCode ? 'selected' : ''}`} disabled={busy !== null} onClick={() => { setBankCode(bank.code); setAccountName(''); setBankPickerOpen(false); setBankSearch(''); }}><BankLogo name={bank.name} /><span className="bank-option-copy">{bank.name}<small>Bank code {bank.code}</small></span>{bank.code === bankCode && <Check size={16} />}</button>)}</div>}
-          <div className="bank-picker-footer">{banks.length ? `${banks.length} banks from Paystack` : 'Bank list unavailable'}{banksStale ? ' · showing last available list' : ''}</div>
+          {!banksLoading && !banksError && filteredBanks.length > 0 && <div className="bank-picker-options">{filteredBanks.map(bank => <button type="button" role="option" aria-selected={bank.code === bankCode} key={bank.code} className={`bank-option ${bank.code === bankCode ? 'selected' : ''}`} disabled={busy !== null} onClick={() => { setBankCode(bank.code); setAccountName(''); setBankPickerOpen(false); setBankSearch(''); }}><BankLogo name={bank.name} code={bank.code} /><span className="bank-option-copy">{bank.name}<small>Bank code {bank.code}</small></span>{bank.code === bankCode && <Check size={16} />}</button>)}</div>}
+          <div className="bank-picker-footer">{banks.length ? `${banks.length} banks available` : 'Bank list unavailable'}{banksStale ? ' · showing last available list' : ''}</div>
         </div>}
       </div>
-      {banksLoading && banks.length === 0 && <p className="payout-help">Connecting securely to Paystack…</p>}
+      {banksLoading && banks.length === 0 && <p className="payout-help">Connecting securely…</p>}
       {banksError && banks.length === 0 && <div className="payout-inline-error"><AlertTriangle size={16} /><span>{banksError}</span><button type="button" className="text-button-inline" onClick={() => void loadBanks()}>Retry</button></div>}
-      {banksStale && banks.length > 0 && <p className="payout-help">Paystack is temporarily unavailable. Showing the most recently loaded bank list.</p>}
+      {banksStale && banks.length > 0 && <p className="payout-help">Connection temporarily unavailable. Showing the most recently loaded bank list.</p>}
     </div>
 
     <div className="payout-account-label-row"><label className="payout-field-label" htmlFor="payout-account-number">Account number</label><span className="payout-field-hint">10 digits</span></div>
