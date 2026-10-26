@@ -71,6 +71,7 @@ model Driver {
   otherNames     String   @default("")
   dateOfBirth    DateTime?
   operatingState String   @default("Ebonyi")
+  operatingArea  String   @default("")
   verificationStatus String @default("incomplete")
   identityStatus String   @default("pending")
   licenseStatus  String   @default("pending")
@@ -79,6 +80,9 @@ model Driver {
   phone          String
   homeAddress    String   @default("")
   tricycle       String   @default("")
+  vehicleMake    String   @default("")
+  vehicleModel   String   @default("")
+  vehicleColor   String   @default("")
   rating         Float    @default(0)
   ratingCount    Int      @default(0)
   verified       Boolean  @default(false)
@@ -148,6 +152,9 @@ model Ride {
   driver              String?
   driverPhone         String?
   tricycle            String?
+  driverVehicleMake   String?
+  driverVehicleModel  String?
+  driverVehicleColor  String?
   pickup              String
   destination         String
   pickupCoords        Json?

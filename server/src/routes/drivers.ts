@@ -89,8 +89,8 @@ router.get('/me/verification', requireAuth(), requireDriver(), async (req: Authe
       where: { userId: req.user!.userId },
       select: {
         id: true, userId: true, name: true, firstName: true, lastName: true, otherNames: true, dateOfBirth: true,
-        operatingState: true, verificationStatus: true, identityStatus: true, licenseStatus: true, vehicleStatus: true,
-        faceStatus: true, phone: true, tricycle: true, verified: true, online: true, status: true, createdAt: true, updatedAt: true,
+        operatingState: true, operatingArea: true, verificationStatus: true, identityStatus: true, licenseStatus: true, vehicleStatus: true,
+        faceStatus: true, phone: true, homeAddress: true, tricycle: true, vehicleMake: true, vehicleModel: true, vehicleColor: true, verified: true, online: true, status: true, createdAt: true, updatedAt: true,
         verificationDocuments: { orderBy: { uploadedAt: 'desc' }, select: {
           id: true, driverId: true, documentType: true, originalName: true, mimeType: true, sizeBytes: true, status: true,
           extractedData: true, automatedChecks: true, providerName: true, providerReference: true, expiryDate: true,
@@ -119,19 +119,23 @@ router.put('/me/verification', requireAuth(), requireDriver(), async (req: Authe
     const homeAddress = String(req.body?.homeAddress || '').trim().slice(0, 500);
     const tricycle = String(req.body?.tricycle || '').trim().slice(0, 40).toUpperCase();
     const operatingState = String(req.body?.operatingState || 'Ebonyi').trim().slice(0, 80);
+    const operatingArea = String(req.body?.operatingArea || '').trim().slice(0, 120);
+    const vehicleMake = String(req.body?.vehicleMake || '').trim().slice(0, 80);
+    const vehicleModel = String(req.body?.vehicleModel || '').trim().slice(0, 80);
+    const vehicleColor = String(req.body?.vehicleColor || '').trim().slice(0, 40);
     const dateOfBirth = req.body?.dateOfBirth ? new Date(String(req.body.dateOfBirth)) : null;
-    if (!firstName || !lastName || !phone || !homeAddress || !tricycle || !dateOfBirth || Number.isNaN(dateOfBirth.getTime())) {
-      return res.status(400).json({ error: 'First name, last name, phone, home address, date of birth, and tricycle registration are required.' });
+    if (!firstName || !lastName || !phone || !homeAddress || !tricycle || !vehicleMake || !vehicleModel || !vehicleColor || !operatingState || !operatingArea || !dateOfBirth || Number.isNaN(dateOfBirth.getTime())) {
+      return res.status(400).json({ error: 'Complete your name, phone, home address, date of birth, vehicle make, model, colour, registration, operating state and operating area.' });
     }
     if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
       return res.status(400).json({ error: 'Enter a valid phone number with its country code, such as +2348031234567.' });
     }
     if (dateOfBirth.getTime() >= Date.now()) return res.status(400).json({ error: 'Date of birth must be in the past.' });
     const name = [firstName, otherNames, lastName].filter(Boolean).join(' ');
-    const identityChanged = driver.firstName !== firstName || driver.lastName !== lastName || driver.otherNames !== otherNames || driver.tricycle !== tricycle || driver.operatingState !== operatingState || !driver.dateOfBirth || driver.dateOfBirth.toISOString().slice(0, 10) !== dateOfBirth.toISOString().slice(0, 10);
+    const identityChanged = driver.firstName !== firstName || driver.lastName !== lastName || driver.otherNames !== otherNames || driver.tricycle !== tricycle || driver.operatingState !== operatingState || driver.vehicleMake !== vehicleMake || driver.vehicleModel !== vehicleModel || driver.vehicleColor !== vehicleColor || !driver.dateOfBirth || driver.dateOfBirth.toISOString().slice(0, 10) !== dateOfBirth.toISOString().slice(0, 10);
     const updated = await prisma.driver.update({
       where: { id: driver.id },
-      data: { firstName, lastName, otherNames, name, phone, homeAddress, tricycle, dateOfBirth, operatingState, verified: identityChanged ? false : driver.verified, online: identityChanged ? false : driver.online, status: identityChanged ? 'pending' : driver.status, verificationStatus: identityChanged ? 'pending_review' : driver.verificationStatus },
+      data: { firstName, lastName, otherNames, name, phone, homeAddress, tricycle, vehicleMake, vehicleModel, vehicleColor, dateOfBirth, operatingState, operatingArea, verified: identityChanged ? false : driver.verified, online: identityChanged ? false : driver.online, status: identityChanged ? 'pending' : driver.status, verificationStatus: identityChanged ? 'pending_review' : driver.verificationStatus },
     });
     if (identityChanged) {
       await prisma.driverVerificationDocument.updateMany({ where: { driverId: driver.id }, data: { status: 'needs_review', verifiedAt: null, reviewedAt: null, reviewedById: null, reviewReason: 'Driver profile changed; recheck this document against the updated details.' } });

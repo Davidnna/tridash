@@ -129,8 +129,8 @@ router.get('/driver-verifications', requireAuth(), requireAdmin(), async (_req: 
       where: { OR: [{ verified: false }, { verificationStatus: { not: 'verified' } }] },
       select: {
         id: true, userId: true, name: true, firstName: true, lastName: true, otherNames: true, dateOfBirth: true,
-        operatingState: true, verificationStatus: true, identityStatus: true, licenseStatus: true, vehicleStatus: true,
-        faceStatus: true, phone: true, tricycle: true, verified: true, online: true, status: true, createdAt: true, updatedAt: true,
+        operatingState: true, operatingArea: true, verificationStatus: true, identityStatus: true, licenseStatus: true, vehicleStatus: true,
+        faceStatus: true, phone: true, homeAddress: true, tricycle: true, vehicleMake: true, vehicleModel: true, vehicleColor: true, verified: true, online: true, status: true, createdAt: true, updatedAt: true,
         user: { select: { email: true } },
         verificationDocuments: { orderBy: { uploadedAt: 'desc' }, select: {
           id: true, driverId: true, documentType: true, originalName: true, mimeType: true, sizeBytes: true, status: true,
@@ -192,7 +192,7 @@ router.post('/driver-verifications/:driverId/approve', requireAuth(), requireAdm
   try {
     const driver = await prisma.driver.findUnique({ where: { id: String(req.params.driverId) }, include: { verificationDocuments: true } });
     if (!driver) return res.status(404).json({ error: 'Driver not found' });
-    if (!driver.firstName || !driver.lastName || !driver.dateOfBirth || !driver.tricycle) return res.status(409).json({ error: "The driver's legal name, date of birth, and vehicle registration details must be completed first." });
+    if (!driver.firstName || !driver.lastName || !driver.dateOfBirth || !driver.homeAddress || !driver.tricycle || !driver.vehicleMake || !driver.vehicleModel || !driver.vehicleColor || !driver.operatingArea) return res.status(409).json({ error: "The driver's legal name, date of birth, home address, vehicle details and operating area must be completed first." });
     const latestByType = new Map<string, any>();
     for (const doc of [...driver.verificationDocuments].sort((a: any, b: any) => b.uploadedAt.getTime() - a.uploadedAt.getTime())) {
       if (!latestByType.has(doc.documentType)) latestByType.set(doc.documentType, doc);

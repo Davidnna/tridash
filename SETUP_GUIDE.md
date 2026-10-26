@@ -146,3 +146,10 @@ The frontend does not need the Paystack secret or Firebase Admin private key. On
 ## Security note
 
 The original AppDeploy runtime is no longer used. Never commit `.env` files, Firebase service-account JSON, or other credentials.
+
+
+## Driver onboarding: vehicle and emergency details update
+
+The driver onboarding form collects home address (with a device-location reverse-geocoding option), emergency contact (optional; name and phone must be entered together), vehicle make/model/colour, registration number, operating state and primary operating area. The home address, date of birth, identity documents and emergency contact are not included in the passenger-facing driver list. When a ride is accepted, the ride stores a snapshot of the assigned vehicle make/model/colour so the passenger can identify it.
+
+After updating this version, apply all pending Prisma migrations with `npx prisma migrate deploy` from the server package/deployment context. Existing driver records will have blank values for the newly required vehicle and operating-area fields until the driver updates their onboarding form.

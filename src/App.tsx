@@ -37,6 +37,9 @@ type Ride = {
   riderPhone?: string;
   bookedForSelf?: boolean;
   tricycle?: string;
+  driverVehicleMake?: string | null;
+  driverVehicleModel?: string | null;
+  driverVehicleColor?: string | null;
   requestedAt?: string;
   acceptedAt?: string;
   startedAt?: string;
@@ -956,7 +959,7 @@ function RideDetail({ ride, payRide, paymentBusy, driverLocation, cancelRide, ba
     {directionsUrl && <a className="navigate-button" href={directionsUrl} target="_blank" rel="noopener noreferrer"><Navigation size={17} /> {viewAsDriver ? (navigatingToPickup ? 'Navigate to pickup in Google Maps' : 'Navigate to drop-off in Google Maps') : 'Open route in Google Maps'}</a>}
     {viewAsDriver
       ? <div className="driver-card"><div className="avatar">{String(ride.passenger || 'PA').slice(0,2).toUpperCase()}</div><div className="driver-info"><strong>{ride.passenger || 'Passenger'}</strong><span>Passenger · {ride.tricycle || 'Tridash tricycle'}</span></div>{ride.riderPhone && <a className="call-button" href={'tel:' + ride.riderPhone} aria-label={'Call ' + ride.passenger}><Phone size={17} /></a>}</div>
-      : <div className="driver-card"><div className="avatar">{(ride.driver || 'DR').split(' ').map((x: string) => x[0]).join('')}</div><div className="driver-info"><strong>{ride.driver || 'Driver search in progress'}</strong><span>{ride.tricycle || 'Tricycle pending'} · <Star size={13} fill="currentColor" /> {ride.rating || '—'}</span>{ride.driverPhone && <small>{ride.driverPhone}</small>}</div>{ride.driver && <>{ride.driverPhone ? <a className="call-button" href={'tel:' + ride.driverPhone} aria-label={'Call ' + ride.driver}><Phone size={17} /></a> : <span className="hint">Driver phone unavailable</span>}<span className="verified"><ShieldCheck size={14} /> Verified</span></>}</div>}
+      : <div className="driver-card"><div className="avatar">{(ride.driver || 'DR').split(' ').map((x: string) => x[0]).join('')}</div><div className="driver-info"><strong>{ride.driver || 'Driver search in progress'}</strong><span>{ride.tricycle || 'Tricycle pending'} · <Star size={13} fill="currentColor" /> {ride.rating || '—'}</span>{[ride.driverVehicleMake, ride.driverVehicleModel, ride.driverVehicleColor].filter(Boolean).length > 0 && <small>{[ride.driverVehicleMake, ride.driverVehicleModel, ride.driverVehicleColor].filter(Boolean).join(' · ')}</small>}{ride.driverPhone && <small>{ride.driverPhone}</small>}</div>{ride.driver && <>{ride.driverPhone ? <a className="call-button" href={'tel:' + ride.driverPhone} aria-label={'Call ' + ride.driver}><Phone size={17} /></a> : <span className="hint">Driver phone unavailable</span>}<span className="verified"><ShieldCheck size={14} /> Verified</span></>}</div>}
     <div className="trip-details"><div><span>FROM</span><strong>{ride.pickup}</strong></div><div><span>TO</span><strong>{ride.destination}</strong></div></div>{ride.riderPhone && !viewAsDriver && <div className="trip-details"><div><span>RIDER</span><strong>{ride.riderName || ride.passenger}</strong></div><div><span>CONTACT</span><strong>{ride.riderPhone}</strong></div></div>}
     <div className="payment-box"><div><span>FARE</span><strong>₦{ride.amount.toLocaleString()}</strong></div><div><span>PAYMENT</span><strong>{ride.paymentStatus || 'Pending'}</strong></div></div>
     {ride.status !== 'Completed' && ride.status !== 'Cancelled' && cancelRide && <div className="payment-actions"><button className="secondary-button danger-button full" onClick={() => cancelRide(ride)}>Cancel ride</button></div>}
@@ -1061,13 +1064,13 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDr
   const [form, setForm] = useState({
     firstName: driver.firstName || '', lastName: driver.lastName || '', otherNames: driver.otherNames || '',
     dateOfBirth: driver.dateOfBirth ? String(driver.dateOfBirth).slice(0, 10) : '',
-    ...splitInternationalPhone(driver.phone || profile.phone || ''), homeAddress: driver.homeAddress || '', tricycle: driver.tricycle || '', operatingState: driver.operatingState || 'Ebonyi',
+    ...splitInternationalPhone(driver.phone || profile.phone || ''), homeAddress: driver.homeAddress || '', tricycle: driver.tricycle || '', vehicleMake: driver.vehicleMake || '', vehicleModel: driver.vehicleModel || '', vehicleColor: driver.vehicleColor || '', operatingState: driver.operatingState || 'Ebonyi', operatingArea: driver.operatingArea || '', emergencyName: profile.emergencyName || '', emergencyPhone: profile.emergencyPhone || '',
   });
   const [documents, setDocuments] = useState<any[]>([]);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [locatingHome, setLocatingHome] = useState(false);
-  const [profileSaved, setProfileSaved] = useState(Boolean(driver.firstName && driver.lastName && driver.dateOfBirth && driver.homeAddress && driver.tricycle));
+  const [profileSaved, setProfileSaved] = useState(Boolean(driver.firstName && driver.lastName && driver.dateOfBirth && driver.homeAddress && driver.tricycle && driver.vehicleMake && driver.vehicleModel && driver.vehicleColor && driver.operatingArea));
   const [uploading, setUploading] = useState<string | null>(null);
   const [lastChecks, setLastChecks] = useState<any>(null);
 
@@ -1078,8 +1081,8 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDr
         const saved = result.data.driver;
         setSavedDriver(saved);
         setDriverProfile?.((current:any) => ({ ...(current || {}), ...saved }));
-        setProfileSaved(Boolean(saved.firstName && saved.lastName && saved.dateOfBirth && saved.homeAddress && saved.tricycle));
-        setForm((current: any) => ({ ...current, firstName: saved.firstName || current.firstName, lastName: saved.lastName || current.lastName, otherNames: saved.otherNames || current.otherNames, dateOfBirth: saved.dateOfBirth ? String(saved.dateOfBirth).slice(0,10) : current.dateOfBirth, ...splitInternationalPhone(saved.phone || composeInternationalPhone(current.phoneCountryCode, current.phoneNationalNumber)), homeAddress: saved.homeAddress || current.homeAddress, tricycle: saved.tricycle || current.tricycle, operatingState: saved.operatingState || 'Ebonyi' }));
+        setProfileSaved(Boolean(saved.firstName && saved.lastName && saved.dateOfBirth && saved.homeAddress && saved.tricycle && saved.vehicleMake && saved.vehicleModel && saved.vehicleColor && saved.operatingArea));
+        setForm((current: any) => ({ ...current, firstName: saved.firstName || current.firstName, lastName: saved.lastName || current.lastName, otherNames: saved.otherNames || current.otherNames, dateOfBirth: saved.dateOfBirth ? String(saved.dateOfBirth).slice(0,10) : current.dateOfBirth, ...splitInternationalPhone(saved.phone || composeInternationalPhone(current.phoneCountryCode, current.phoneNationalNumber)), homeAddress: saved.homeAddress || current.homeAddress, tricycle: saved.tricycle || current.tricycle, vehicleMake: saved.vehicleMake || current.vehicleMake, vehicleModel: saved.vehicleModel || current.vehicleModel, vehicleColor: saved.vehicleColor || current.vehicleColor, operatingState: saved.operatingState || 'Ebonyi', operatingArea: saved.operatingArea || current.operatingArea }));
       }
       setDocuments(Array.isArray(result.data?.documents) ? result.data.documents : []);
     } catch { /* keep the editable onboarding form available */ }
@@ -1112,12 +1115,15 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDr
   const saveApplication = async () => {
     const internationalPhone = composeInternationalPhone(form.phoneCountryCode, form.phoneNationalNumber);
     if (!form.homeAddress.trim()) { notify('Enter your home address or use your current location.'); return; }
+    if (Boolean(form.emergencyName.trim()) !== Boolean(form.emergencyPhone.trim())) { notify('Enter both emergency contact name and phone, or leave both blank.'); return; }
+    if (!form.vehicleMake.trim() || !form.vehicleModel.trim() || !form.vehicleColor.trim() || !form.tricycle.trim() || !form.operatingState.trim() || !form.operatingArea.trim()) { notify('Complete all required vehicle and operating-area details.'); return; }
     if (!/^\+[1-9]\d{7,14}$/.test(internationalPhone)) { notify('Enter a valid phone number and select its country code.'); return; }
     setBusy(true);
     try {
-      const payload = { ...form, phone: internationalPhone, homeAddress: form.homeAddress.trim() };
-      const res = await api.put('/api/driver/me/verification', payload);
-      await saveProfile({ ...profile, name: [form.firstName, form.otherNames, form.lastName].filter(Boolean).join(' '), phone: internationalPhone, role: 'driver' });
+      const { emergencyName, emergencyPhone, phoneCountryCode, phoneNationalNumber, ...driverFields } = form;
+      const driverPayload = { ...driverFields, phone: internationalPhone, homeAddress: form.homeAddress.trim() };
+      const res = await api.put('/api/driver/me/verification', driverPayload);
+      await saveProfile({ ...profile, name: [form.firstName, form.otherNames, form.lastName].filter(Boolean).join(' '), phone: internationalPhone, emergencyName: form.emergencyName.trim(), emergencyPhone: form.emergencyPhone.trim(), role: 'driver' });
       if (res.data?.driver) { setSavedDriver(res.data.driver); setDriverProfile?.(res.data.driver); setProfileSaved(true); notify('Driver details saved. Upload the required documents next.'); }
       await loadVerification();
     } catch (error: any) { notify(error?.message || 'Driver details could not be saved.'); }
@@ -1128,7 +1134,7 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDr
     if (!file) return;
     if (!consent) { notify('Please read and accept the secure document-processing consent first.'); return; }
     if (file.size > 8 * 1024 * 1024) { notify('Each document must be smaller than 8 MB.'); return; }
-    if (!profileSaved || !form.firstName.trim() || !form.lastName.trim() || !form.dateOfBirth || !form.tricycle.trim()) { notify('Save your personal and vehicle details before uploading documents.'); return; }
+    if (!profileSaved || !form.firstName.trim() || !form.lastName.trim() || !form.dateOfBirth || !form.tricycle.trim() || !form.vehicleMake.trim() || !form.vehicleModel.trim() || !form.vehicleColor.trim() || !form.operatingArea.trim()) { notify('Save your personal and vehicle details before uploading documents.'); return; }
     setUploading(documentType);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -1174,11 +1180,18 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDr
       <label>Home address *<textarea required autoComplete="street-address" rows={2} value={form.homeAddress} onChange={e=>{setForm({...form,homeAddress:e.target.value});setProfileSaved(false)}} placeholder="House number, street, area, city" /></label>
       <button type="button" className="secondary-button full" disabled={locatingHome} onClick={useCurrentLocationForHome}><Navigation size={16}/>{locatingHome ? 'Finding your location…' : 'Use my current location as home address'}</button>
       <small className="phone-format-hint">Your device location is used to look up an address. Check the result before saving. Your home address is for account and verification purposes, not for display to passengers.</small>
+      <h3 className="driver-subsection-heading">Emergency contact</h3>
+      <p className="muted">Choose someone Tridash can contact in a genuine safety emergency. These details are kept private.</p>
+      <div className="verification-form-grid"><label>Contact name (optional)<input autoComplete="off" value={form.emergencyName} onChange={e=>{setForm({...form,emergencyName:e.target.value});setProfileSaved(false)}} placeholder="Full name" /></label><label>Contact phone (optional)<input type="tel" inputMode="tel" autoComplete="off" value={form.emergencyPhone} onChange={e=>{setForm({...form,emergencyPhone:e.target.value});setProfileSaved(false)}} placeholder="Phone number" /></label></div>
     </div>
     <div className="form-card driver-verification-form">
       <h3>Vehicle details</h3>
+      <div className="verification-form-grid"><label>Vehicle make / manufacturer *<input value={form.vehicleMake} onChange={e=>{setForm({...form,vehicleMake:e.target.value});setProfileSaved(false)}} placeholder="e.g. Bajaj" /></label><label>Vehicle model *<input value={form.vehicleModel} onChange={e=>{setForm({...form,vehicleModel:e.target.value});setProfileSaved(false)}} placeholder="Model / variant" /></label></div>
+      <label>Vehicle colour *<input value={form.vehicleColor} onChange={e=>{setForm({...form,vehicleColor:e.target.value});setProfileSaved(false)}} placeholder="e.g. yellow and black" /></label>
       <label>Tricycle registration number *<input autoComplete="off" value={form.tricycle} onChange={e=>{setForm({...form,tricycle:e.target.value.toUpperCase()});setProfileSaved(false)}} placeholder="EB-123-XY"/></label>
       <label>Operating state *<select value={form.operatingState} onChange={e=>{setForm({...form,operatingState:e.target.value});setProfileSaved(false)}}><option>Ebonyi</option><option>Abia</option><option>Anambra</option><option>Enugu</option><option>Imo</option><option>Rivers</option><option>Cross River</option><option>Akwa Ibom</option><option>Other</option></select></label>
+      <label>Primary operating area / city or LGA *<input value={form.operatingArea} onChange={e=>{setForm({...form,operatingArea:e.target.value});setProfileSaved(false)}} placeholder="e.g. Abakaliki, Ebonyi LGA" /></label>
+      <small className="phone-format-hint">Your assigned passenger can see your vehicle make, model, colour and registration to identify the tricycle. Your home address, date of birth, ID documents and emergency contact remain private.</small>
       <button className="primary-button full" disabled={busy} onClick={saveApplication}>{busy ? 'Saving details…' : 'Save personal and vehicle details'}</button>
     </div>
     <div className="form-card driver-document-list"><h3>Required documents</h3><p className="muted">Accepted formats: JPG, PNG, WebP or PDF. Maximum 8 MB per file. We run automated checks where supported; official verification is only marked complete when an authorised service or an admin review confirms it.</p>
@@ -1496,7 +1509,7 @@ function DriverVerificationApplication({application,notify,onRefresh}:any){
     finally{setBusy(null);}
   };
   const apiBase=(import.meta.env.VITE_API_URL||'http://localhost:3001').replace(/\/$/,'');
-  return <article className="verification-application"><div className="verification-application-head"><div className="avatar">{name.split(/\s+/).map((part:string)=>part[0]).join('').slice(0,2).toUpperCase()}</div><div className="driver-info"><strong>{name}</strong><span>{application.phone||'No phone'} · {application.tricycle||'Vehicle not supplied'}</span><small>{application.user?.email||''} · {application.operatingState||'Ebonyi'} State</small><small>Date of birth: {application.dateOfBirth?new Date(application.dateOfBirth).toLocaleDateString():'Not supplied'}</small></div><span className={'verification-state '+statusClass(application.verificationStatus||'pending')}>{String(application.verificationStatus||'pending').replace(/_/g,' ')}</span></div>
+  return <article className="verification-application"><div className="verification-application-head"><div className="avatar">{name.split(/\s+/).map((part:string)=>part[0]).join('').slice(0,2).toUpperCase()}</div><div className="driver-info"><strong>{name}</strong><span>{application.phone||'No phone'} · {application.tricycle||'Vehicle not supplied'}</span><small>{[application.vehicleMake, application.vehicleModel, application.vehicleColor].filter(Boolean).join(' · ') || 'Vehicle details incomplete'}</small><small>{application.operatingArea ? application.operatingArea + ', ' : ''}{application.operatingState||'Ebonyi'} State · {application.user?.email||''}</small><small>Date of birth: {application.dateOfBirth?new Date(application.dateOfBirth).toLocaleDateString():'Not supplied'}</small></div><span className={'verification-state '+statusClass(application.verificationStatus||'pending')}>{String(application.verificationStatus||'pending').replace(/_/g,' ')}</span></div>
     <div className="verification-document-grid">{docs.map((doc:any)=><section className="verification-document-card" key={doc.id}><div className="verification-document-title"><strong>{typeLabel(doc.documentType)}</strong><span className={'verification-state '+statusClass(doc.status)}>{String(doc.status).replace(/_/g,' ')}</span></div><small>{doc.originalName} · {Math.max(1,Math.round((doc.sizeBytes||0)/1024))} KB</small>{doc.expiryDate&&<small>Expiry: {new Date(doc.expiryDate).toLocaleDateString()}</small>}{doc.extractedData&&<div className="extracted-field-list">{Object.entries(doc.extractedData as Record<string,any>).filter(([key,value])=>['firstName','lastName','otherNames','fullName','name','dateOfBirth','date_of_birth','documentNumber','document_number','licenseNumber','licenceNumber','expiryDate','expiry_date','registrationNumber','registration_number','plateNumber','vin','chassisNumber','make','model'].includes(key)&&['string','number'].includes(typeof value)&&String(value).trim()).map(([key,value])=><div key={key}><span>{key.replace(/([A-Z])/g,' $1').replace(/_/g,' ')}</span><b>{String(value)}</b></div>)}</div>}{doc.automatedChecks&&<><div className="automated-check-summary">{Object.entries(doc.automatedChecks as Record<string,any>).filter(([key,value])=>key!=='notes'&&typeof value==='boolean').map(([key,value])=><span key={key} className={value?'check-pass':'check-fail'}>{key.replace(/([A-Z])/g,' $1')}: {value?'pass':'fail'}</span>)}</div>{doc.automatedChecks.officialReturnedDetails&&<div className="extracted-field-list"><strong>Official registry response</strong>{Object.entries(doc.automatedChecks.officialReturnedDetails as Record<string,any>).filter(([key,value])=>['firstName','lastName','otherNames','fullName','name','dateOfBirth','date_of_birth','documentNumber','document_number','licenseNumber','licenceNumber','expiryDate','expiry_date','registrationNumber','registration_number','plateNumber','vin','chassisNumber','make','model'].includes(key)&&['string','number'].includes(typeof value)&&String(value).trim()).map(([key,value])=><div key={key}><span>{key.replace(/([A-Z])/g,' $1').replace(/_/g,' ')}</span><b>{String(value)}</b></div>)}</div>}</>}{doc.automatedChecks?.officialMessage&&<p className="muted">Official check: {doc.automatedChecks.officialMessage}</p>}{Array.isArray(doc.automatedChecks?.notes)&&doc.automatedChecks.notes.map((note:string,index:number)=><p className="muted" key={index}>{note}</p>)}{doc.reviewReason&&<p className="muted">{doc.reviewReason}</p>}<a className="secondary-button compact" href={`${apiBase}/api/admin/driver-verifications/${application.id}/documents/${doc.id}/file`} target="_blank" rel="noreferrer">Open document</a><label>Review note / official reference<textarea rows={2} value={notes[doc.id]??doc.reviewReason??''} onChange={e=>setNotes({...notes,[doc.id]:e.target.value})} placeholder="Record the official result or reason for rejection"/></label><div className="verification-review-actions"><button className="primary-button compact" disabled={!!busy} onClick={()=>review(doc,'verified')}>{busy===doc.id+'verified'?'Saving…':'Mark verified'}</button><button className="secondary-button compact" disabled={!!busy} onClick={()=>review(doc,'rejected')}>Reject</button><button className="secondary-button compact" disabled={!!busy} onClick={()=>review(doc,'needs_review')}>Needs review</button></div></section>)}</div>
     <div className="verification-application-footer"><span>{verifiedRequiredCount} of {requiredTypes.length} required documents verified</span><button className="primary-button compact" disabled={!!busy||application.verified} onClick={approve}>{busy==='approve'?'Approving…':application.verified?'Approved':'Approve driver'}</button></div>
   </article>;
