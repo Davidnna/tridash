@@ -39,7 +39,7 @@ app.use(cors({
 // Paystack webhook needs the raw body for HMAC signature verification, so it
 // is mounted before express.json().
 app.use('/api/payments/paystack/webhook', express.raw({ type: '*/*' }));
-app.use(express.json());
+app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
 
 // Initialize Firebase

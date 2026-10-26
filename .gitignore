@@ -31,3 +31,6 @@ coverage/
 .idea/
 .DS_Store
 Thumbs.db
+# Private driver identity documents (never commit uploads)
+private-uploads/
+server/private-uploads/

@@ -4,3 +4,4 @@ dist/
 **/*firebase*.json
 **/service-account*.json
 !.env.example
+private-uploads/

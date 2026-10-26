@@ -3,6 +3,9 @@ import prisma from '../utils/database';
 import { requireAuth, requireDriver, AuthenticatedRequest } from '../middleware/auth';
 import { notifySubscribers } from '../services/websocket';
 import { getCommissionPercent } from '../utils/config';
+import { randomUUID } from 'crypto';
+import { writePrivateDocument, readPrivateDocument, deletePrivateDocument } from '../services/privateDocumentStorage';
+import { compareDocumentFields, extractDocumentFields, verifyAgainstOfficialProvider, verifyFaceWithProvider, requiredDocumentTypes, getVerificationConfig, VerificationDocumentType } from '../services/driverVerification';
 
 const router = Router();
 
@@ -38,6 +41,12 @@ router.get('/', requireAuth(), async (req, res) => {
   }
 });
 
+// Return the verification requirements configured for the selected operating state.
+router.get('/verification-config', requireAuth(), requireDriver(), async (req: AuthenticatedRequest, res) => {
+  const state = String(req.query.state || 'Ebonyi').trim().slice(0, 80);
+  res.json({ config: getVerificationConfig(state) });
+});
+
 // Get current driver profile
 router.get('/me', requireAuth(), requireDriver(), async (req: AuthenticatedRequest, res) => {
   try {
@@ -70,6 +79,183 @@ router.get('/me', requireAuth(), requireDriver(), async (req: AuthenticatedReque
   } catch (error) {
     console.error('Get driver profile error:', error);
     res.status(500).json({ error: 'Failed to get driver profile' });
+  }
+});
+
+// Read the current driver's verification application without exposing private storage keys.
+router.get('/me/verification', requireAuth(), requireDriver(), async (req: AuthenticatedRequest, res) => {
+  try {
+    const driver = await prisma.driver.findUnique({
+      where: { userId: req.user!.userId },
+      select: {
+        id: true, userId: true, name: true, firstName: true, lastName: true, otherNames: true, dateOfBirth: true,
+        operatingState: true, verificationStatus: true, identityStatus: true, licenseStatus: true, vehicleStatus: true,
+        faceStatus: true, phone: true, tricycle: true, verified: true, online: true, status: true, createdAt: true, updatedAt: true,
+        verificationDocuments: { orderBy: { uploadedAt: 'desc' }, select: {
+          id: true, driverId: true, documentType: true, originalName: true, mimeType: true, sizeBytes: true, status: true,
+          extractedData: true, automatedChecks: true, providerName: true, providerReference: true, expiryDate: true,
+          reviewReason: true, reviewedById: true, reviewedAt: true, uploadedAt: true, verifiedAt: true, createdAt: true, updatedAt: true,
+        } },
+      },
+    });
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+    const { verificationDocuments, ...profile } = driver;
+    res.json({ driver: profile, documents: verificationDocuments });
+  } catch (error) {
+    console.error('Driver verification read error:', error);
+    res.status(500).json({ error: 'Could not load driver verification' });
+  }
+});
+
+// Save the driver's structured legal name and state-specific onboarding details.
+router.put('/me/verification', requireAuth(), requireDriver(), async (req: AuthenticatedRequest, res) => {
+  try {
+    const driver = await prisma.driver.findUnique({ where: { userId: req.user!.userId } });
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+    const firstName = String(req.body?.firstName || '').trim().slice(0, 80);
+    const lastName = String(req.body?.lastName || '').trim().slice(0, 80);
+    const otherNames = String(req.body?.otherNames || '').trim().slice(0, 120);
+    const phone = String(req.body?.phone || driver.phone || '').trim().slice(0, 40);
+    const tricycle = String(req.body?.tricycle || '').trim().slice(0, 40).toUpperCase();
+    const operatingState = String(req.body?.operatingState || 'Ebonyi').trim().slice(0, 80);
+    const dateOfBirth = req.body?.dateOfBirth ? new Date(String(req.body.dateOfBirth)) : null;
+    if (!firstName || !lastName || !phone || !tricycle || !dateOfBirth || Number.isNaN(dateOfBirth.getTime())) {
+      return res.status(400).json({ error: 'First name, last name, phone, date of birth, and tricycle registration are required.' });
+    }
+    if (dateOfBirth.getTime() >= Date.now()) return res.status(400).json({ error: 'Date of birth must be in the past.' });
+    const name = [firstName, otherNames, lastName].filter(Boolean).join(' ');
+    const identityChanged = driver.firstName !== firstName || driver.lastName !== lastName || driver.otherNames !== otherNames || driver.tricycle !== tricycle || driver.operatingState !== operatingState || !driver.dateOfBirth || driver.dateOfBirth.toISOString().slice(0, 10) !== dateOfBirth.toISOString().slice(0, 10);
+    const updated = await prisma.driver.update({
+      where: { id: driver.id },
+      data: { firstName, lastName, otherNames, name, phone, tricycle, dateOfBirth, operatingState, verified: identityChanged ? false : driver.verified, online: identityChanged ? false : driver.online, status: identityChanged ? 'pending' : driver.status, verificationStatus: identityChanged ? 'pending_review' : driver.verificationStatus },
+    });
+    if (identityChanged) {
+      await prisma.driverVerificationDocument.updateMany({ where: { driverId: driver.id }, data: { status: 'needs_review', verifiedAt: null, reviewedAt: null, reviewedById: null, reviewReason: 'Driver profile changed; recheck this document against the updated details.' } });
+    }
+    await prisma.profile.updateMany({ where: { userId: req.user!.userId }, data: { name, phone } });
+    res.json({ driver: updated, message: 'Profile saved. Submit the required documents to continue.' });
+  } catch (error) {
+    console.error('Driver verification profile save error:', error);
+    res.status(500).json({ error: 'Could not save driver verification profile' });
+  }
+});
+
+// Upload a private driver document. Files are not served as public static assets.
+router.post('/me/verification/documents', requireAuth(), requireDriver(), async (req: AuthenticatedRequest, res) => {
+  let storageKeyForCleanup = '';
+  try {
+    const driver = await prisma.driver.findUnique({ where: { userId: req.user!.userId } });
+    if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+    if (!driver.firstName || !driver.lastName || !driver.dateOfBirth || !driver.tricycle) return res.status(409).json({ error: 'Save your first name, last name, date of birth, and vehicle registration before uploading documents.' });
+    if (req.body?.consent !== true) return res.status(400).json({ error: 'Consent to secure document processing is required.' });
+    const documentType = String(req.body?.documentType || '') as VerificationDocumentType;
+    if (!['government_id', 'drivers_license', 'vehicle_registration', 'state_operating_permit', 'vehicle_inspection_certificate', 'insurance_certificate', 'selfie'].includes(documentType)) {
+      return res.status(400).json({ error: 'Choose a supported document type.' });
+    }
+    const mimeType = String(req.body?.mimeType || '').toLowerCase();
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mimeType)) {
+      return res.status(400).json({ error: 'Upload a PDF, JPG, PNG or WebP file.' });
+    }
+    if (documentType === 'selfie' && mimeType === 'application/pdf') return res.status(400).json({ error: 'A selfie must be an image file.' });
+    const base64 = String(req.body?.base64 || '').replace(/^data:[^;]+;base64,/, '');
+    if (!base64 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) return res.status(400).json({ error: 'The uploaded file could not be read.' });
+    const buffer = Buffer.from(base64, 'base64');
+    if (!buffer.length || buffer.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'Each document must be smaller than 8 MB.' });
+    const isPdf = buffer.subarray(0, 5).toString() === '%PDF-';
+    const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    const isPng = buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+    const isWebp = buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP';
+    if (!((mimeType === 'application/pdf' && isPdf) || (mimeType === 'image/jpeg' && isJpeg) || (mimeType === 'image/png' && isPng) || (mimeType === 'image/webp' && isWebp))) {
+      return res.status(400).json({ error: 'The file contents do not match the selected file type.' });
+    }
+
+    const storageKey = randomUUID();
+    storageKeyForCleanup = storageKey;
+    await writePrivateDocument(storageKey, buffer);
+
+    let extractedFields: Record<string, unknown> | null = null;
+    let ocrProvider = '';
+    let ocrConfigured = false;
+    let comparison: { checks: Record<string, unknown>; status: 'needs_review' | 'checks_passed' };
+    let official: Record<string, any> = { configured: false, verified: false, detailsMatch: false, details: null, provider: '', reference: '', message: 'Official verification is not configured.' };
+    if (documentType === 'selfie') {
+      const identityDoc = await prisma.driverVerificationDocument.findFirst({ where: { driverId: driver.id, documentType: 'government_id' }, orderBy: { uploadedAt: 'desc' } });
+      if (identityDoc) {
+        try {
+          const identityBuffer = await readPrivateDocument(identityDoc.storageKey);
+          const face = await verifyFaceWithProvider({ selfieBase64: base64, selfieMimeType: mimeType, identityDocumentBase64: identityBuffer.toString('base64'), identityDocumentMimeType: identityDoc.mimeType });
+          official = { configured: face.configured, verified: face.verified, detailsMatch: face.verified, details: { faceMatchPassed: face.faceMatchPassed, livenessPassed: face.livenessPassed }, provider: face.provider, reference: face.reference, message: face.message };
+          comparison = { checks: { faceMatchPassed: face.faceMatchPassed, livenessPassed: face.livenessPassed, notes: face.configured && face.verified ? [] : [face.message] }, status: face.configured && face.verified ? 'checks_passed' : 'needs_review' };
+          ocrConfigured = face.configured;
+          ocrProvider = face.provider;
+        } catch (error) {
+          console.error('Face verification provider error:', error);
+          comparison = { checks: { faceMatchPassed: false, livenessPassed: false, notes: ['Face verification provider is unavailable; manual review is required.'] }, status: 'needs_review' };
+        }
+      } else {
+        comparison = { checks: { faceMatchPassed: null, livenessPassed: null, notes: ['Upload your government ID before submitting a selfie for face matching.'] }, status: 'needs_review' };
+      }
+    } else {
+      try {
+        const extraction = await extractDocumentFields({ documentType, mimeType, base64 });
+        extractedFields = extraction.fields;
+        ocrProvider = extraction.provider;
+        ocrConfigured = extraction.configured;
+      } catch (error) {
+        console.error('Document OCR provider error:', error);
+      }
+      comparison = compareDocumentFields(driver, documentType, extractedFields);
+      try {
+        official = await verifyAgainstOfficialProvider(documentType, extractedFields, driver);
+      } catch (error) {
+        console.error('Official document verification provider error:', error);
+        official.message = 'Official verification service could not be reached; manual review is required.';
+      }
+    }
+    const checks: Record<string, any> = { ...comparison.checks, ocrConfigured, officialVerificationConfigured: official.configured, officialVerificationPassed: official.verified, officialDetailsMatch: official.detailsMatch, officialReturnedDetails: official.details, officialMessage: official.message };
+    const expiryValue = extractedFields ? String(extractedFields.expiryDate || extractedFields.expiry_date || extractedFields.expirationDate || '') : '';
+    const expiryDate = expiryValue && !Number.isNaN(new Date(expiryValue).getTime()) ? new Date(expiryValue) : null;
+    let status: string = comparison.status;
+    if (comparison.status === 'checks_passed' && official.verified) status = 'verified';
+    else if ((official.configured && !official.verified) || !ocrConfigured || (!extractedFields && documentType !== 'selfie')) status = 'needs_review';
+    if (checks.expiryValid === false) status = 'expired';
+
+    const doc = await prisma.driverVerificationDocument.create({
+      data: {
+        driverId: driver.id, documentType, originalName: String(req.body?.fileName || documentType).replace(/[\\/]/g, '_').slice(0, 180),
+        storageKey, mimeType, sizeBytes: buffer.length, status, extractedData: extractedFields as any,
+        automatedChecks: checks as any, providerName: [ocrProvider, official.provider].filter(Boolean).join(' + '),
+        providerReference: official.reference, expiryDate, reviewReason: [...(comparison.checks.notes as string[]), ...(official.verified ? [] : [official.message])].filter(Boolean).join(' '),
+        verifiedAt: status === 'verified' ? new Date() : null,
+      },
+    });
+
+    const statusField = documentType === 'government_id' ? 'identityStatus' : documentType === 'drivers_license' ? 'licenseStatus' : documentType === 'selfie' ? 'faceStatus' : 'vehicleStatus';
+    await prisma.driver.update({ where: { id: driver.id }, data: { [statusField]: status, verified: false, online: false, status: 'pending', verificationStatus: 'pending_review' } as any });
+    const { storageKey: hiddenStorageKey, ...safeDoc } = doc;
+    res.status(201).json({ document: safeDoc, checks, message: status === 'verified' ? 'The document passed the configured checks.' : 'Document received. Some checks require further review.' });
+  } catch (error: any) {
+    if (storageKeyForCleanup) await deletePrivateDocument(storageKeyForCleanup).catch(() => {});
+    console.error('Driver document upload error:', error);
+    res.status(500).json({ error: error?.message || 'Could not process the document upload.' });
+  }
+});
+
+// A driver can retrieve only their own uploaded document.
+router.get('/me/verification/documents/:documentId/file', requireAuth(), requireDriver(), async (req: AuthenticatedRequest, res) => {
+  try {
+    const driver = await prisma.driver.findUnique({ where: { userId: req.user!.userId } });
+    const doc = await prisma.driverVerificationDocument.findFirst({ where: { id: String(req.params.documentId), driverId: driver?.id } });
+    if (!doc) return res.status(404).json({ error: 'Document not found' });
+    const file = await readPrivateDocument(doc.storageKey);
+    res.setHeader('Content-Type', doc.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${doc.originalName.replace(/["\r\n]/g, '')}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(file);
+  } catch (error) {
+    console.error('Driver document retrieval error:', error);
+    res.status(500).json({ error: 'Could not retrieve document' });
   }
 });
 
@@ -112,6 +298,9 @@ router.put('/me', requireAuth(), requireDriver(), async (req: AuthenticatedReque
     }
 
     if (typeof online === 'boolean') {
+      if (online && (!driver.verified || driver.verificationStatus !== 'verified')) {
+        return res.status(403).json({ error: 'Complete and pass driver verification before going online.' });
+      }
       updateData.online = online;
       if (!online) {
         updateData.lastLocation = null;
@@ -318,6 +507,9 @@ router.put('/:id', requireAuth(), async (req: AuthenticatedRequest, res) => {
     }
 
     const { name, phone, tricycle, documents, online, verified, status } = req.body;
+    if (online === true && (!driver.verified || (driver as any).verificationStatus !== 'verified')) {
+      return res.status(403).json({ error: 'Complete and pass driver verification before going online.' });
+    }
 
     // Drivers cannot change verification or status
     if (user.role === 'driver' && (verified !== undefined || status !== undefined)) {
@@ -337,11 +529,32 @@ router.put('/:id', requireAuth(), async (req: AuthenticatedRequest, res) => {
           .map(item => item.slice(0, 120));
       }
       if (typeof online === 'boolean') updateData.online = online;
+      if (typeof verified === 'boolean' && verified) {
+        const requiredDocs = await prisma.driverVerificationDocument.findMany({ where: { driverId: driver.id, documentType: { in: requiredDocumentTypes((driver as any).operatingState || 'Ebonyi') } }, orderBy: { uploadedAt: 'desc' } });
+        const latestByType = new Map<string, any>();
+        for (const doc of requiredDocs) if (!latestByType.has(doc.documentType)) latestByType.set(doc.documentType, doc);
+        const verifiedTypes = new Set([...latestByType.entries()].filter(([, doc]) => doc.status === 'verified').map(([type]) => type));
+        if (requiredDocumentTypes((driver as any).operatingState || 'Ebonyi').some(type => !verifiedTypes.has(type))) {
+          return res.status(409).json({ error: 'Identity, driving licence, and vehicle registration documents must each be verified before approving this driver.' });
+        }
+        if (!driver.firstName || !driver.lastName || !driver.dateOfBirth || !driver.tricycle) {
+          return res.status(409).json({ error: 'The driver legal name, date of birth, and vehicle registration details must be completed first.' });
+        }
+        if (process.env.FACE_VERIFICATION_API_URL && driver.faceStatus !== 'verified') {
+          return res.status(409).json({ error: 'Facial verification is enabled but has not passed yet.' });
+        }
+        updateData.verificationStatus = 'verified';
+      }
       if (typeof verified === 'boolean') updateData.verified = verified;
       if (['active', 'suspended', 'pending'].includes(status)) updateData.status = status;
     } else {
-      // Driver can only toggle online status
-      if (typeof online === 'boolean') updateData.online = online;
+      // Driver can only toggle online status, and only after verification.
+      if (typeof online === 'boolean') {
+        if (online && (!driver.verified || driver.verificationStatus !== 'verified')) {
+          return res.status(403).json({ error: 'Complete and pass driver verification before going online.' });
+        }
+        updateData.online = online;
+      }
     }
 
     const updatedDriver = await prisma.driver.update({

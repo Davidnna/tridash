@@ -56,6 +56,16 @@ type Driver = {
   online: boolean;
   tricycle: string;
   documents: string[];
+  firstName?: string;
+  lastName?: string;
+  otherNames?: string;
+  dateOfBirth?: string | null;
+  operatingState?: string;
+  verificationStatus?: string;
+  identityStatus?: string;
+  licenseStatus?: string;
+  vehicleStatus?: string;
+  faceStatus?: string;
   status?: 'active' | 'suspended' | 'pending';
 };
 
@@ -596,9 +606,7 @@ function App() {
   };
 
   const approveDriver = async (driver: Driver) => {
-    const updated = { ...driver, verified: true, status: 'active' as const };
-    setDrivers(current => current.map(d => d.id === driver.id ? updated : d));
-    try { const res = await api.put('/api/drivers/' + driver.id, { verified: true, status: 'active', online: false }); if (res.data?.driver) setDrivers(current => current.map(d => d.id === driver.id ? res.data.driver : d)); notify(driver.name + ' approved'); } catch { notify('Driver approval could not be saved.'); }
+    try { const res = await api.post('/api/admin/driver-verifications/' + driver.id + '/approve', {}); if (res.data?.driver) setDrivers(current => current.map(d => d.id === driver.id ? res.data.driver : d)); notify(driver.name + ' approved'); } catch (error: any) { notify(error?.message || 'Driver approval could not be saved. Complete all required document checks first.'); }
   };
 
   const updateUserRole = async (userId: string, nextRole: Role) => {
@@ -693,7 +701,7 @@ function App() {
   const pendingDrivers = drivers.filter(d => !d.verified);
 
   const renderPassenger = (routeTab: Tab) => <PassengerWorkspace tab={routeTab} setTab={setTab} profile={profile} activeRide={activeForPassenger} myTrips={myTrips} requestRide={requestRide} cancelRide={cancelRide} sendSOS={sendSOS} shareTrip={shareTrip} driverLocation={driverLocation} payRide={payRide} paymentBusy={paymentBusy} saveProfile={saveProfile} profileBusy={profileBusy} notify={notify} showRating={showRating} setShowRating={setShowRating} rating={rating} setRating={setRating} review={review} setReview={setReview} submitRating={submitRating} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} selectedRide={selectedRide} setSelectedRide={setSelectedRide} />;
-  const renderDriver = (routeTab: Tab) => <DriverWorkspace tab={routeTab} setTab={setTab} driver={driverProfile || drivers.find(d => d.userId === authUser?.userId) || { id: 'pending-driver', userId: authUser?.userId, name: profile.name || authUser?.name || 'Driver', phone: profile.phone || '', rating: 0, verified: false, online: false, tricycle: '', documents: [], status: 'pending' }} requests={requests} activeRide={activeRide} rides={rides} updateRide={updateRide} acceptRide={acceptRide} rejectRide={rejectRide} toggleOnline={toggleDriverOnline} notify={notify} saveProfile={saveProfile} profile={profile} driverLocation={driverLocation} />;
+  const renderDriver = (routeTab: Tab) => <DriverWorkspace tab={routeTab} setTab={setTab} driver={driverProfile || drivers.find(d => d.userId === authUser?.userId) || { id: 'pending-driver', userId: authUser?.userId, name: profile.name || authUser?.name || 'Driver', phone: profile.phone || '', rating: 0, verified: false, online: false, tricycle: '', documents: [], status: 'pending' }} requests={requests} activeRide={activeRide} rides={rides} updateRide={updateRide} acceptRide={acceptRide} rejectRide={rejectRide} toggleOnline={toggleDriverOnline} notify={notify} saveProfile={saveProfile} profile={profile} driverLocation={driverLocation} setDriverProfile={setDriverProfile} />;
 
   if (!authReady) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Checking your secure session…</p></div>;
   if (!authUser) return <AuthScreen busy={authBusy} onSignIn={signIn} onSignUp={signUp} onGoogleSignIn={signInGoogle} onResetPassword={resetPassword} />;
@@ -969,7 +977,7 @@ function TripsPage({ trips, setSelectedRide, workspace = 'rider' }: any) {
 function SafetyPage({ activeRide, profile, sendSOS, shareTrip, setTab, notify }: any) {
   return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">SAFETY CENTRE</div><h2>Ride with confidence</h2></div></section>
     <div className="safety-hero"><ShieldAlert size={30} /><strong>SOS on every trip</strong><p>Use SOS when you need urgent assistance. Tridash records the incident with your trip reference.</p><button className="sos-large" disabled={!activeRide} onClick={sendSOS}><AlertTriangle size={21} /> {activeRide ? 'ACTIVATE SOS' : 'NO ACTIVE TRIP'}</button></div>
-    <div className="safety-list"><div><ShieldCheck size={20} /><span><strong>Verified drivers</strong><small>Government ID and tricycle registration checks are recorded.</small></span></div><div><Users size={20} /><span><strong>Emergency contact</strong><small>{profile.emergencyName ? profile.emergencyName + ' · ' + profile.emergencyPhone : 'Add an emergency contact in Profile.'}</small></span></div><div><Navigation size={20} /><span><strong>Share trip</strong><small>Send route and status to someone you trust.</small></span><button className="secondary-button" disabled={!activeRide} onClick={shareTrip}>Share</button></div></div>
+    <div className="safety-list"><div><ShieldCheck size={20} /><span><strong>Verified drivers</strong><small>Identity, driving licence and vehicle checks must be completed before a driver is approved.</small></span></div><div><Users size={20} /><span><strong>Emergency contact</strong><small>{profile.emergencyName ? profile.emergencyName + ' · ' + profile.emergencyPhone : 'Add an emergency contact in Profile.'}</small></span></div><div><Navigation size={20} /><span><strong>Share trip</strong><small>Send route and status to someone you trust.</small></span><button className="secondary-button" disabled={!activeRide} onClick={shareTrip}>Share</button></div></div>
     <IncidentReportButton activeRide={activeRide} notify={notify} />
   </div>;
 }
@@ -1005,16 +1013,16 @@ function RatingModal({ rating, setRating, review, setReview, submit, close }: an
   return <div className="modal-backdrop"><div className="modal"><button className="modal-close" onClick={close}><X /></button><div className="eyebrow">TRIP COMPLETED</div><h2>How was your trip?</h2><p>Rate your driver and leave a short review.</p><div className="stars">{[1,2,3,4,5].map(n => <button key={n} onClick={() => setRating(n)} className={n <= rating ? 'star-on' : ''}><Star fill="currentColor" /></button>)}</div><textarea value={review} onChange={e => setReview(e.target.value)} placeholder="Tell us about your trip (optional)" /><button className="primary-button full" onClick={submit}>Submit rating</button></div></div>;
 }
 
-function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, updateRide, acceptRide, rejectRide, toggleOnline, notify, saveProfile, profile, driverLocation }: any) {
+function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, updateRide, acceptRide, rejectRide, toggleOnline, notify, saveProfile, profile, driverLocation, setDriverProfile }: any) {
   // Rides are keyed to the driver's user id (Ride.driverId). Matching on the
   // driver name alone hid trips whenever the name on the ride and the driver
   // profile drifted apart, which left drivers unable to open their trip details.
   const myDriverRides = rides.filter((r: Ride) => r.driverId === driver.userId || (r.driver && r.driver === driver.name));
   if (tab === 'requests') return <DriverRequests requests={requests} driver={driver} acceptRide={acceptRide} rejectRide={rejectRide} setTab={setTab} toggleOnline={toggleOnline} />;
   if (tab === 'trips') return <TripsPage trips={myDriverRides} workspace="driver" />;
-  if (tab === 'profile') return <DriverProfilePage profile={{...profile, role:'driver'}} driver={driver} saveProfile={saveProfile} notify={notify} setTab={setTab} />;
+  if (tab === 'profile') return <DriverProfilePage profile={{...profile, role:'driver'}} driver={driver} saveProfile={saveProfile} notify={notify} setTab={setTab} setDriverProfile={setDriverProfile} />;
   const hasPayoutAccount = Boolean(driver.payoutSubaccountCode);
-  return <div className="mobile-frame"><section className="hero-copy"><div className="eyebrow">DRIVER</div><h1>Good morning,<br /><strong>{driver.name.split(' ')[0]} 👋</strong></h1><p>Verified drivers keep every ride accountable.</p></section><div className="online-card"><div><span className={'status-dot ' + (driver.online ? '' : 'offline')} /> {driver.online ? 'Online' : 'Offline'}</div><button onClick={toggleOnline} disabled={!hasPayoutAccount}>{driver.online ? 'Go offline' : 'Go online'}</button></div><div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">VERIFICATION</span><strong>{driver.verified ? 'Verified driver' : 'Verification pending'}</strong><p>Government ID and tricycle registration status is stored on your driver record.</p></div></div>{!hasPayoutAccount && <div className="form-card"><span className="eyebrow">ACTION REQUIRED</span><strong>Add your payout account</strong><p>Add the bank account that receives your earnings. Drivers without a payout account cannot go online or accept rides.</p><button className="primary-button full" onClick={() => setTab('profile')}>Add payout account <ChevronRight size={18} /></button></div>}{activeRide && activeRide.driverId === driver.userId ? <ActiveDriverRide ride={activeRide} updateRide={updateRide} notify={notify} driverLocation={driverLocation} /> : <div className="empty-card"><div className="empty-icon"><CarFront size={22} /></div><h2>{driver.online ? 'Waiting for requests' : 'You are offline'}</h2><p>{driver.online ? 'New passenger requests will appear in Ride requests.' : 'Go online to receive ride requests.'}</p><button className="primary-button" onClick={() => setTab('requests')}>View requests <ChevronRight size={18} /></button></div>}<BottomNav tab={tab} setTab={setTab} driver /></div>;
+  return <div className="mobile-frame"><section className="hero-copy"><div className="eyebrow">DRIVER</div><h1>Good morning,<br /><strong>{driver.name.split(' ')[0]} 👋</strong></h1><p>Verified drivers keep every ride accountable.</p></section><div className="online-card"><div><span className={'status-dot ' + (driver.online ? '' : 'offline')} /> {driver.online ? 'Online' : 'Offline'}</div><button onClick={toggleOnline} disabled={!hasPayoutAccount}>{driver.online ? 'Go offline' : 'Go online'}</button></div><div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">VERIFICATION</span><strong>{driver.verified ? 'Verified driver' : 'Verification pending'}</strong><p>Your identity, driving licence and vehicle documents are checked before your account is approved.</p></div></div>{!hasPayoutAccount && <div className="form-card"><span className="eyebrow">ACTION REQUIRED</span><strong>Add your payout account</strong><p>Add the bank account that receives your earnings. Drivers without a payout account cannot go online or accept rides.</p><button className="primary-button full" onClick={() => setTab('profile')}>Add payout account <ChevronRight size={18} /></button></div>}{activeRide && activeRide.driverId === driver.userId ? <ActiveDriverRide ride={activeRide} updateRide={updateRide} notify={notify} driverLocation={driverLocation} /> : <div className="empty-card"><div className="empty-icon"><CarFront size={22} /></div><h2>{driver.online ? 'Waiting for requests' : 'You are offline'}</h2><p>{driver.online ? 'New passenger requests will appear in Ride requests.' : 'Go online to receive ride requests.'}</p><button className="primary-button" onClick={() => setTab('requests')}>View requests <ChevronRight size={18} /></button></div>}<BottomNav tab={tab} setTab={setTab} driver /></div>;
 }
 
 function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, toggleOnline }: any) {
@@ -1024,17 +1032,105 @@ function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, togg
   return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">RIDE REQUESTS</div><h2>Available trips</h2></div></section><div className="driver-availability-card"><div><strong>{driver?.online ? 'You are online' : 'You are offline'}</strong><span>{driver?.verified ? (driver?.online ? 'Passenger requests can be accepted or declined.' : 'Go online to manage requests.') : 'Your driver account must be verified before you can manage requests.'}</span></div>{driver?.verified && <button onClick={toggleOnline}>{driver?.online ? 'Go offline' : 'Go online'}</button>}</div>{visibleRequests.length ? visibleRequests.map((ride: Ride) => <div className="request-card" key={ride.id}><div><span className="eyebrow">PICKUP</span><strong>{ride.pickup}</strong><span className="destination-line">→ {ride.destination}</span><span className="request-meta"><MapPin size={13} /> Passenger {ride.passenger}</span></div><div className="request-actions"><div><b>₦{ride.amount.toLocaleString()}</b><div className="request-readiness">{!driver?.verified ? 'Awaiting verification' : !driver?.online ? 'Go online to manage' : !hasPayoutAccount ? 'Add payout account' : 'Ready'}</div></div><div className="request-action-buttons"><button className="secondary-button compact" disabled={!canManage} onClick={() => rejectRide(ride)}>Reject</button><button className="primary-button" disabled={!canManage} onClick={async () => { const accepted = await acceptRide(ride); if (accepted) setTab('home'); }}>Accept</button></div></div></div>) : <div className="empty-card"><div className="empty-icon"><Clock3 size={22} /></div><h2>No requests yet</h2><p>Stay online to receive nearby passenger requests.</p></div>}</div>;
 }
 
-function DriverProfilePage({ profile, driver, saveProfile, notify, setTab }: any) {
-  const [form, setForm] = useState({ ...profile, tricycle: driver.tricycle || '', governmentId: driver.documents?.includes('Government ID') ? 'Submitted' : '', registration: driver.documents?.includes('Tricycle registration') ? 'Submitted' : '' });
-  const submit = async () => {
-    await saveProfile({ ...profile, name: form.name, phone: form.phone, emergencyName: form.emergencyName, emergencyPhone: form.emergencyPhone, role: 'driver' });
+function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDriverProfile }: any) {
+  const [savedDriver, setSavedDriver] = useState(driver);
+  const [form, setForm] = useState({
+    firstName: driver.firstName || '', lastName: driver.lastName || '', otherNames: driver.otherNames || '',
+    dateOfBirth: driver.dateOfBirth ? String(driver.dateOfBirth).slice(0, 10) : '',
+    phone: driver.phone || profile.phone || '', tricycle: driver.tricycle || '', operatingState: driver.operatingState || 'Ebonyi',
+  });
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [consent, setConsent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(Boolean(driver.firstName && driver.lastName && driver.dateOfBirth && driver.tricycle));
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [lastChecks, setLastChecks] = useState<any>(null);
+
+  const loadVerification = async () => {
     try {
-      const documents = [form.governmentId.trim() ? 'Government ID' : '', form.registration.trim() ? 'Tricycle registration' : ''].filter(Boolean);
-      const res = await api.put('/api/driver/me', { name: form.name, phone: form.phone, tricycle: form.tricycle.trim(), documents });
-      if (res.data?.driver) notify(res.data.driver.verified ? 'Driver profile updated' : 'Driver profile submitted for verification');
-    } catch { notify('Driver profile could not be saved.'); }
+      const result = await api.get('/api/driver/me/verification');
+      if (result.data?.driver) {
+        const saved = result.data.driver;
+        setSavedDriver(saved);
+        setDriverProfile?.((current:any) => ({ ...(current || {}), ...saved }));
+        setProfileSaved(Boolean(saved.firstName && saved.lastName && saved.dateOfBirth && saved.tricycle));
+        setForm((current: any) => ({ ...current, firstName: saved.firstName || current.firstName, lastName: saved.lastName || current.lastName, otherNames: saved.otherNames || current.otherNames, dateOfBirth: saved.dateOfBirth ? String(saved.dateOfBirth).slice(0,10) : current.dateOfBirth, phone: saved.phone || current.phone, tricycle: saved.tricycle || current.tricycle, operatingState: saved.operatingState || 'Ebonyi' }));
+      }
+      setDocuments(Array.isArray(result.data?.documents) ? result.data.documents : []);
+    } catch { /* keep the editable onboarding form available */ }
   };
-  return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">DRIVER ONBOARDING</div><h2>Driver profile</h2></div></section><div className="form-card"><label>Full name<input value={form.name} onChange={e => setForm({...form,name:e.target.value})} /></label><label>Phone<input value={form.phone} onChange={e => setForm({...form,phone:e.target.value})} placeholder="080..." /></label><label>Tricycle registration<input value={form.tricycle} onChange={e => setForm({...form,tricycle:e.target.value.toUpperCase()})} placeholder="EB-123-XY" /></label><label>Government ID<input value={form.governmentId} onChange={e => setForm({...form,governmentId:e.target.value})} placeholder="ID number or submitted" /></label><label>Registration document<input value={form.registration} onChange={e => setForm({...form,registration:e.target.value})} placeholder="Registration number or submitted" /></label><button className="primary-button full" onClick={submit}>Save & submit for verification</button></div><div className="verification-card"><div className="verified-badge"><ShieldCheck size={19} /></div><div><span className="eyebrow">STATUS</span><strong>{driver.verified ? 'Verified driver' : 'Pending admin verification'}</strong><p>{driver.verified ? 'You can go online and accept passenger requests.' : 'An administrator must verify your government ID and tricycle registration before you can accept rides.'}</p></div></div><PayoutAccountSection driver={driver} notify={notify} /></div>;
+  useEffect(() => { void loadVerification(); }, [driver.id]);
+
+  const saveApplication = async () => {
+    setBusy(true);
+    try {
+      const res = await api.put('/api/driver/me/verification', form);
+      await saveProfile({ ...profile, name: [form.firstName, form.otherNames, form.lastName].filter(Boolean).join(' '), phone: form.phone, role: 'driver' });
+      if (res.data?.driver) { setSavedDriver(res.data.driver); setDriverProfile?.(res.data.driver); setProfileSaved(true); notify('Driver details saved. Upload the required documents next.'); }
+      await loadVerification();
+    } catch (error: any) { notify(error?.message || 'Driver details could not be saved.'); }
+    finally { setBusy(false); }
+  };
+
+  const uploadDocument = async (documentType: string, file?: File) => {
+    if (!file) return;
+    if (!consent) { notify('Please read and accept the secure document-processing consent first.'); return; }
+    if (file.size > 8 * 1024 * 1024) { notify('Each document must be smaller than 8 MB.'); return; }
+    if (!profileSaved || !form.firstName.trim() || !form.lastName.trim() || !form.dateOfBirth || !form.tricycle.trim()) { notify('Save your personal details before uploading documents.'); return; }
+    setUploading(documentType);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('File could not be read'));
+        reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+        reader.readAsDataURL(file);
+      });
+      const result = await api.post('/api/driver/me/verification/documents', { documentType, fileName: file.name, mimeType: file.type, base64, consent: true });
+      setLastChecks(result.data?.checks || null);
+      notify(result.data?.message || 'Document uploaded for verification.');
+      await loadVerification();
+    } catch (error: any) { notify(error?.message || 'Document upload failed.'); }
+    finally { setUploading(null); }
+  };
+
+  const [requiredDocs, setRequiredDocs] = useState<any[]>([
+    { type: 'government_id', label: 'Government-issued ID', hint: 'NIN slip/card or another accepted government ID', accept: 'image/*,application/pdf', required: true },
+    { type: 'drivers_license', label: "Driver's licence", hint: 'Upload a clear, unexpired licence belonging to you', accept: 'image/*,application/pdf', required: true },
+    { type: 'vehicle_registration', label: 'Tricycle registration', hint: 'The registration number must match the tricycle profile', accept: 'image/*,application/pdf', required: true },
+    { type: 'selfie', label: 'Selfie for face match', hint: 'Use a clear, recent photo. A still image alone does not prove liveness; a supported provider is required for that check', accept: 'image/*', required: false },
+  ]);
+  useEffect(() => {
+    let active = true;
+    api.get('/api/driver/verification-config?state=' + encodeURIComponent(form.operatingState || 'Ebonyi')).then(result => {
+      if (!active || !result.data?.config) return;
+      const config = result.data.config;
+      setRequiredDocs([...(config.requiredDocuments || []), ...(config.optionalDocuments || [])]);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [form.operatingState]);
+  const statusLabel = (status: string) => ({ verified: 'Verified', checks_passed: 'Automated checks passed', uploaded: 'Uploaded', needs_review: 'Needs review', rejected: 'Rejected', expired: 'Expired', pending: 'Not submitted' } as Record<string,string>)[status] || status.replace(/_/g,' ');
+  const statusClass = (status: string) => ['verified','checks_passed'].includes(status) ? 'verified' : ['rejected','expired'].includes(status) ? 'rejected' : 'pending';
+
+  return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">DRIVER ONBOARDING</div><h2>Driver verification</h2></div></section>
+    <div className="booking-intro"><div className="booking-intro-icon"><ShieldCheck size={20}/></div><div><strong>Use your own valid documents</strong><span>Make sure the name and date of birth match your profile. Upload clear, complete, unexpired documents. Blurry, cropped or mismatched documents may need to be resubmitted.</span></div></div>
+    <div className="form-card driver-verification-form">
+      <h3>Personal details</h3>
+      <div className="verification-form-grid"><label>First name *<input autoComplete="given-name" value={form.firstName} onChange={e=>{setForm({...form,firstName:e.target.value});setProfileSaved(false)}} placeholder="First name on your ID"/></label><label>Last name *<input autoComplete="family-name" value={form.lastName} onChange={e=>{setForm({...form,lastName:e.target.value});setProfileSaved(false)}} placeholder="Last name on your ID"/></label></div>
+      <label>Other names (optional)<input value={form.otherNames} onChange={e=>{setForm({...form,otherNames:e.target.value});setProfileSaved(false)}} placeholder="Middle name or additional names"/></label>
+      <label>Date of birth *<input type="date" value={form.dateOfBirth} max={new Date().toISOString().slice(0,10)} onChange={e=>{setForm({...form,dateOfBirth:e.target.value});setProfileSaved(false)}}/></label>
+      <label>Phone number *<input type="tel" value={form.phone} onChange={e=>{setForm({...form,phone:e.target.value});setProfileSaved(false)}} placeholder="080…"/></label>
+      <label>Tricycle registration number *<input value={form.tricycle} onChange={e=>{setForm({...form,tricycle:e.target.value.toUpperCase()});setProfileSaved(false)}} placeholder="EB-123-XY"/></label>
+      <label>Operating state *<select value={form.operatingState} onChange={e=>{setForm({...form,operatingState:e.target.value});setProfileSaved(false)}}><option>Ebonyi</option><option>Abia</option><option>Anambra</option><option>Enugu</option><option>Imo</option><option>Rivers</option><option>Cross River</option><option>Akwa Ibom</option><option>Other</option></select></label>
+      <button className="primary-button full" disabled={busy} onClick={saveApplication}>{busy ? 'Saving details…' : 'Save personal details'}</button>
+    </div>
+    <div className="form-card driver-document-list"><h3>Required documents</h3><p className="muted">Accepted formats: JPG, PNG, WebP or PDF. Maximum 8 MB per file. We run automated checks where supported; official verification is only marked complete when an authorised service or an admin review confirms it.</p>
+      {requiredDocs.map(doc => { const uploaded = documents.find(item => item.documentType === doc.type); return <div className="driver-upload-row" key={doc.type}><div className="driver-upload-heading"><div><strong>{doc.label} {doc.required ? '*' : '(optional)'}</strong><small>{doc.hint}</small></div><span className={'verification-state '+statusClass(uploaded?.status || 'pending')}>{statusLabel(uploaded?.status || 'pending')}</span></div>{uploaded && <div className="driver-upload-meta"><span>{uploaded.originalName}</span>{uploaded.expiryDate && <span>Expiry: {new Date(uploaded.expiryDate).toLocaleDateString()}</span>}{uploaded.reviewReason && <small>{uploaded.reviewReason}</small>}</div>}<label className="upload-file-control">{uploading===doc.type ? 'Processing upload…' : uploaded ? 'Replace document' : 'Choose file'}<input type="file" accept={doc.accept} disabled={!!uploading} onChange={e=>{void uploadDocument(doc.type,e.target.files?.[0]);e.currentTarget.value='';}}/></label></div>; })}
+      <label className="verification-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>I consent to Tridash securely processing these documents for identity, driving-licence, vehicle and fraud checks, including face matching and liveness checks if enabled. I understand a provider may be used only where configured and authorised.</span></label>
+      {lastChecks && <div className="verification-check-results"><strong>Latest automated check</strong>{Object.entries(lastChecks).filter(([key])=>!['notes'].includes(key)).map(([key,value])=><div key={key}><span>{key.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase())}</span><b>{value===true?'Passed':value===false?'Failed':value===null?'Not confirmed':String(value)}</b></div>)}{Array.isArray(lastChecks.notes)&&lastChecks.notes.map((note:string,i:number)=><small key={i}>{note}</small>)}</div>}
+    </div>
+    <div className="verification-card"><div className="verified-badge"><ShieldCheck size={19}/></div><div><span className="eyebrow">APPLICATION STATUS</span><strong>{savedDriver.verified ? 'Verified driver' : statusLabel(savedDriver.verificationStatus || 'incomplete')}</strong><p>{savedDriver.verified ? 'Your driver account is approved.' : 'You cannot go online or accept rides until the required documents are verified and your application is approved.'}</p></div></div>
+    <PayoutAccountSection driver={driver} notify={notify}/>
+  </div>;
 }
 
 type BankLogoEntry = {
@@ -1270,7 +1366,7 @@ function ActiveDriverRide({ ride, updateRide, notify, driverLocation }: any) {
   return <div className="driver-active"><div className="status-card"><div className="status-icon"><Navigation size={24} /></div><div><strong>{ride.status}</strong><p>{ride.pickup} → {ride.destination}</p></div></div><MapView pickup={ride.pickupCoords} destination={ride.destinationCoords} userLocation={driverLocation} driverLocation={driverLocation} followDriver /><div className="passenger-card"><div className="avatar">{String(ride.passenger || 'PA').slice(0,2).toUpperCase()}</div><div><strong>{ride.passenger}</strong><span>Passenger · emergency support available</span></div>{ride.passengerPhone ? <a className="call-button" href={'tel:' + ride.passengerPhone} aria-label={'Call ' + ride.passenger}><Phone size={17} /></a> : <button className="call-button" aria-label="Passenger phone unavailable" onClick={() => notify('Passenger phone number is not available')}><Phone size={17} /></button>}</div><div className="safety-row"><button onClick={() => notify('Passenger safety contact opened')}><ShieldAlert size={18} /> Safety</button>{directionsUrl ? <a className="safety-link" href={directionsUrl} target="_blank" rel="noopener noreferrer"><Navigation size={18} /> {navigatingToPickup ? 'Navigate to pickup' : 'Navigate to drop-off'}</a> : <button onClick={() => notify('This trip has no navigation details yet')}><Navigation size={18} /> Navigate</button>}</div>{ride.status === 'Accepted' && <button className="primary-button full" onClick={() => updateRide(ride,'In Progress',ride.driver || undefined,ride.driverId)}>Start trip</button>}{ride.status === 'In Progress' && <button className="primary-button full" onClick={() => updateRide(ride,'Completed',ride.driver || undefined,ride.driverId)}>Complete trip</button>}</div>;
 }
 
-function AdminWorkspace({ drivers, rides, pendingDrivers, approveDriver, notify, updateUserRole, suspendUser, askConfirm, initialSection = 'overview' }: any) {
+function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole, suspendUser, askConfirm, initialSection = 'overview' }: any) {
   const navigate = useNavigate();
   const location = useLocation();
   const [section, setSection] = useState(initialSection);
@@ -1284,6 +1380,7 @@ function AdminWorkspace({ drivers, rides, pendingDrivers, approveDriver, notify,
   const [users, setUsers] = useState<any[]>([]);
   const [incidents, setIncidents] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [verificationApplications, setVerificationApplications] = useState<any[]>([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const filteredRides = rides.filter((r: Ride) => JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
   const active = rides.filter((r: Ride) => !['Completed','Cancelled'].includes(r.status)).length;
@@ -1291,10 +1388,11 @@ function AdminWorkspace({ drivers, rides, pendingDrivers, approveDriver, notify,
   const loadAdminData = async () => {
     setAdminLoading(true);
     try {
-      const [u, i, p] = await Promise.all([api.get('/api/admin/users'), api.get('/api/admin/incidents'), api.get('/api/admin/payments')]);
+      const [u, i, p, v] = await Promise.all([api.get('/api/admin/users').catch(() => ({data:{}})), api.get('/api/admin/incidents').catch(() => ({data:{}})), api.get('/api/admin/payments').catch(() => ({data:{}})), api.get('/api/admin/driver-verifications').catch(() => ({data:{}}))]);
       setUsers(u.data?.users || []);
       setIncidents(i.data?.incidents || []);
       setPayments(p.data?.payments || []);
+      setVerificationApplications(v.data?.applications || []);
     } catch {
       notify('Some admin data could not be refreshed.');
     } finally {
@@ -1303,9 +1401,9 @@ function AdminWorkspace({ drivers, rides, pendingDrivers, approveDriver, notify,
   };
   useEffect(() => { void loadAdminData(); }, [section]);
   return <div className="admin-layout"><aside className="admin-side"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><div className="eyebrow">OPERATIONS</div>{[['overview',Home,'Overview'],['users',Users,'Users'],['drivers',ShieldCheck,'Drivers'],['rides',Activity,'Rides'],['reports',MessageSquareWarning,'Reports'],['payments',CreditCard,'Payments'],['settings',Settings,'Settings']].map(([key,Icon,label]: any)=><button key={key} className={section===key?'side-active':''} onClick={()=>changeSection(key)}><Icon size={17} />{label}</button>)}</aside><section className="admin-content"><div className="admin-mobile-nav"><select aria-label="Admin section" value={section} onChange={e=>changeSection(e.target.value)}>{[['overview','Overview'],['users','Users'],['drivers','Drivers'],['rides','Rides'],['reports','Reports'],['payments','Payments'],['settings','Settings']].map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></div><div className="admin-head"><div><div className="eyebrow">ADMINISTRATOR</div><h1>{section[0].toUpperCase()+section.slice(1)}</h1></div><button className="secondary-button" disabled={adminLoading} onClick={()=>{ void loadAdminData(); }}>{adminLoading ? 'Refreshing…' : 'Refresh'}</button></div>
-    {section==='overview' && <><div className="stats"><Stat label="Passengers" value={passengerCount} icon={Users}/><Stat label="Verified drivers" value={drivers.filter((d: Driver)=>d.verified).length} icon={ShieldCheck}/><Stat label="Active rides" value={active} icon={Activity}/><Stat label="Reports" value={incidents.length} icon={AlertTriangle}/></div><Panel title="Driver verification" eyebrow="PENDING APPLICATIONS"><p className="muted">{pendingDrivers.length ? 'Review submitted government ID and tricycle registration records.' : 'No pending applications.'}</p>{pendingDrivers.map((d: Driver)=><DriverAdminRow key={d.id} driver={d} approve={()=>approveDriver(d)}/>)}</Panel><Panel title="Live ride monitor" eyebrow="CURRENT ACTIVITY">{rides.slice(0,8).map((r: Ride)=><RideAdminRow key={r.id} ride={r}/>)}</Panel></>}
+    {section==='overview' && <><div className="stats"><Stat label="Passengers" value={passengerCount} icon={Users}/><Stat label="Verified drivers" value={drivers.filter((d: Driver)=>d.verified).length} icon={ShieldCheck}/><Stat label="Active rides" value={active} icon={Activity}/><Stat label="Reports" value={incidents.length} icon={AlertTriangle}/></div><Panel title="Driver verification" eyebrow="PENDING APPLICATIONS"><p className="muted">{verificationApplications.length ? 'Review each uploaded document, record the verification result, and approve only after all required checks pass.' : 'No pending applications.'}</p>{verificationApplications.map((application:any)=><DriverVerificationApplication key={application.id} application={application} notify={notify} onRefresh={loadAdminData}/>)}</Panel><Panel title="Live ride monitor" eyebrow="CURRENT ACTIVITY">{rides.slice(0,8).map((r: Ride)=><RideAdminRow key={r.id} ride={r}/>)}</Panel></>}
     {section==='users' && <Panel title="User management" eyebrow="PASSENGERS · DRIVERS · ADMINS"><div className="search-box"><Search size={17}/><input placeholder="Search users" value={search} onChange={e=>setSearch(e.target.value)}/></div>{adminLoading ? <p className="muted">Loading users…</p> : users.filter(u=>JSON.stringify(u).toLowerCase().includes(search.toLowerCase())).map(u=><AdminUserRow key={u.id} user={u} updateUserRole={updateUserRole} suspendUser={suspendUser} setUsers={setUsers} askConfirm={askConfirm}/>)}</Panel>}
-    {section==='drivers' && <Panel title="Driver management" eyebrow="ALL DRIVERS"><div className="search-box"><Search size={17}/><input placeholder="Search drivers" value={search} onChange={e=>setSearch(e.target.value)}/></div>{drivers.filter((d: Driver)=>d.name.toLowerCase().includes(search.toLowerCase())).map((d: Driver)=><DriverAdminRow key={d.id} driver={d} approve={()=>approveDriver(d)}/>)}</Panel>}
+    {section==='drivers' && <><Panel title="Verification applications" eyebrow="DOCUMENT REVIEW"><div className="search-box"><Search size={17}/><input placeholder="Search applications by name, phone or state" value={search} onChange={e=>setSearch(e.target.value)}/></div>{verificationApplications.filter((a:any)=>JSON.stringify(a).toLowerCase().includes(search.toLowerCase())).map((application:any)=><DriverVerificationApplication key={application.id} application={application} notify={notify} onRefresh={loadAdminData}/>)}</Panel><Panel title="Approved and registered drivers" eyebrow="DRIVER DIRECTORY">{drivers.filter((d: Driver)=>d.name.toLowerCase().includes(search.toLowerCase())).map((d: Driver)=><DriverAdminRow key={d.id} driver={d} approve={()=>approveDriver(d)}/>)}</Panel></>}
     {section==='rides' && <Panel title="Ride management" eyebrow="ALL RIDES"><div className="search-box"><Search size={17}/><input placeholder="Search passenger, route or status" value={search} onChange={e=>setSearch(e.target.value)}/></div>{filteredRides.map((r: Ride)=><RideAdminRow key={r.id} ride={r}/>)}</Panel>}
     {section==='reports' && <Panel title="Complaints & incidents" eyebrow="SAFETY QUEUE"><div className="incident-demo"><AlertTriangle size={20}/><div><strong>Safety queue</strong><p>Review SOS events, complaints and operational reports.</p></div></div><textarea value={reportText} onChange={e=>setReportText(e.target.value)} placeholder="Incident details…" /><button className="primary-button" disabled={!reportText.trim() || adminLoading} onClick={async()=>{if(!reportText.trim())return;try{await api.post('/api/incidents',{type:'admin-report',message:reportText.trim()});setReportText('');await loadAdminData();notify('Incident recorded')}catch{notify('Incident could not be recorded')}}}>Record incident</button>{adminLoading?<p className="muted">Loading incidents…</p>:incidents.map(i=><div className="ride-row" key={i.id}><div><strong>{i.type||'Incident'}</strong><span>{i.message||'No details'} · {i.createdAt ? new Date(i.createdAt).toLocaleString() : ''}</span></div><span className={'ride-status '+String(i.severity||'normal').toLowerCase()}>{i.severity||'normal'}</span></div>)}</Panel>}
     {section==='payments' && <Panel title="Payment records" eyebrow="FINANCIAL AUDIT"><p className="muted">All Tridash passenger payments are processed online through Paystack and verified server-side before a ride is marked paid.</p>{adminLoading?<p className="muted">Loading payments…</p>:payments.map(p=><div className="ride-row" key={p.id}><div><strong>{p.method||'Payment'}</strong><span>Ride {p.rideId||'—'} · ₦{Number(p.amount||0).toLocaleString()}</span></div><span className={'ride-status '+String(p.status||'Pending').toLowerCase()}>{p.status||'Pending'}</span></div>)}</Panel>}
@@ -1315,8 +1413,39 @@ function AdminWorkspace({ drivers, rides, pendingDrivers, approveDriver, notify,
 function Stat({label,value,icon:Icon}:any){return <div className="stat-card"><Icon size={19}/><span>{label}</span><strong>{value}</strong></div>}
 function Panel({title,eyebrow,children}:any){return <section className="admin-panel"><div className="panel-head"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div></div>{children}</section>}
 function AdminUserRow({user,updateUserRole,suspendUser,setUsers,askConfirm}:any){const suspended=user.status==='suspended';const [saving,setSaving]=useState(false);const changeRole=async(nextRole:Role)=>{if(nextRole===user.role)return;const confirmed=await askConfirm('Change account role?','Change '+(user.name||user.email)+' to '+nextRole+'? This changes the workspace permissions available to the account.','Change role');if(!confirmed)return;setSaving(true);if(await updateUserRole(user.id,nextRole))setUsers((x:any[])=>x.map(item=>item.id===user.id?{...item,role:nextRole}:item));setSaving(false)};const toggleStatus=async()=>{const nextSuspended=!suspended;if(nextSuspended){const confirmed=await askConfirm('Suspend account?','Suspend '+(user.name||user.email)+'? They will be blocked from protected Tridash actions.','Suspend account');if(!confirmed)return;}setSaving(true);if(await suspendUser(user.id,nextSuspended))setUsers((x:any[])=>x.map(item=>item.id===user.id?{...item,status:nextSuspended?'suspended':'active'}:item));setSaving(false)};return <div className="driver-row user-admin-row"><div className="avatar">{String(user.name||user.email).slice(0,2).toUpperCase()}</div><div className="driver-info"><strong>{user.name||'Unnamed user'}</strong><span>{user.email}</span><small className={'user-account-state '+(suspended?'is-suspended':'')}>{suspended?'Suspended account':user.emailVerified?'Verified account':'Email not verified'}</small></div>{!user.isSuperAdmin&&<div className="user-controls"><div className="user-control"><label>Role</label><select disabled={saving} value={user.role} onChange={e=>changeRole(e.target.value as Role)}><option value="passenger">Passenger</option><option value="driver">Driver</option><option value="admin">Admin</option></select></div><div className="user-control"><label>Account</label><button className={'secondary-button compact user-status-button '+(suspended?'reactivate':'suspend')} disabled={saving} onClick={toggleStatus}>{saving?'Saving…':suspended?'Reactivate':'Suspend'}</button></div></div>}{user.isSuperAdmin&&<span className="superadmin-badge">Superadmin protected</span>}</div>}
+function DriverVerificationApplication({application,notify,onRefresh}:any){
+  const [notes,setNotes]=useState<Record<string,string>>({});
+  const [busy,setBusy]=useState<string|null>(null);
+  const name=[application.firstName,application.otherNames,application.lastName].filter(Boolean).join(' ')||application.name||'Unnamed driver';
+  const docs=Array.isArray(application.verificationDocuments)?application.verificationDocuments:[];
+  const requiredTypes=Array.isArray(application.requiredDocumentTypes)?application.requiredDocumentTypes:['government_id','drivers_license','vehicle_registration'];
+  const latestRequired=requiredTypes.map((type:string)=>docs.find((doc:any)=>doc.documentType===type));
+  const verifiedRequiredCount=latestRequired.filter((doc:any)=>doc?.status==='verified').length;
+  const typeLabel=(type:string)=>({government_id:'Government-issued ID',drivers_license:"Driver's licence",vehicle_registration:'Tricycle registration',selfie:'Face verification selfie'} as Record<string,string>)[type]||type;
+  const statusClass=(status:string)=>status==='verified'?'verified':['rejected','expired'].includes(status)?'rejected':'pending';
+  const review=async(doc:any,status:'verified'|'rejected'|'needs_review')=>{
+    const note=(notes[doc.id]||'').trim();
+    if(status!=='needs_review'&&note.length<8){notify('Add a review note or official verification reference (at least 8 characters).');return;}
+    setBusy(doc.id+status);
+    try{await api.put(`/api/admin/driver-verifications/${application.id}/documents/${doc.id}`,{status,reviewReason:note});notify(typeLabel(doc.documentType)+' review saved.');await onRefresh();}
+    catch(error:any){notify(error?.message||'Could not save document review.');}
+    finally{setBusy(null);}
+  };
+  const approve=async()=>{
+    setBusy('approve');
+    try{await api.post(`/api/admin/driver-verifications/${application.id}/approve`,{});notify(name+' approved.');await onRefresh();}
+    catch(error:any){notify(error?.message||'Driver cannot be approved until all required checks pass.');}
+    finally{setBusy(null);}
+  };
+  const apiBase=(import.meta.env.VITE_API_URL||'http://localhost:3001').replace(/\/$/,'');
+  return <article className="verification-application"><div className="verification-application-head"><div className="avatar">{name.split(/\s+/).map((part:string)=>part[0]).join('').slice(0,2).toUpperCase()}</div><div className="driver-info"><strong>{name}</strong><span>{application.phone||'No phone'} · {application.tricycle||'Vehicle not supplied'}</span><small>{application.user?.email||''} · {application.operatingState||'Ebonyi'} State</small><small>Date of birth: {application.dateOfBirth?new Date(application.dateOfBirth).toLocaleDateString():'Not supplied'}</small></div><span className={'verification-state '+statusClass(application.verificationStatus||'pending')}>{String(application.verificationStatus||'pending').replace(/_/g,' ')}</span></div>
+    <div className="verification-document-grid">{docs.map((doc:any)=><section className="verification-document-card" key={doc.id}><div className="verification-document-title"><strong>{typeLabel(doc.documentType)}</strong><span className={'verification-state '+statusClass(doc.status)}>{String(doc.status).replace(/_/g,' ')}</span></div><small>{doc.originalName} · {Math.max(1,Math.round((doc.sizeBytes||0)/1024))} KB</small>{doc.expiryDate&&<small>Expiry: {new Date(doc.expiryDate).toLocaleDateString()}</small>}{doc.extractedData&&<div className="extracted-field-list">{Object.entries(doc.extractedData as Record<string,any>).filter(([key,value])=>['firstName','lastName','otherNames','fullName','name','dateOfBirth','date_of_birth','documentNumber','document_number','licenseNumber','licenceNumber','expiryDate','expiry_date','registrationNumber','registration_number','plateNumber','vin','chassisNumber','make','model'].includes(key)&&['string','number'].includes(typeof value)&&String(value).trim()).map(([key,value])=><div key={key}><span>{key.replace(/([A-Z])/g,' $1').replace(/_/g,' ')}</span><b>{String(value)}</b></div>)}</div>}{doc.automatedChecks&&<><div className="automated-check-summary">{Object.entries(doc.automatedChecks as Record<string,any>).filter(([key,value])=>key!=='notes'&&typeof value==='boolean').map(([key,value])=><span key={key} className={value?'check-pass':'check-fail'}>{key.replace(/([A-Z])/g,' $1')}: {value?'pass':'fail'}</span>)}</div>{doc.automatedChecks.officialReturnedDetails&&<div className="extracted-field-list"><strong>Official registry response</strong>{Object.entries(doc.automatedChecks.officialReturnedDetails as Record<string,any>).filter(([key,value])=>['firstName','lastName','otherNames','fullName','name','dateOfBirth','date_of_birth','documentNumber','document_number','licenseNumber','licenceNumber','expiryDate','expiry_date','registrationNumber','registration_number','plateNumber','vin','chassisNumber','make','model'].includes(key)&&['string','number'].includes(typeof value)&&String(value).trim()).map(([key,value])=><div key={key}><span>{key.replace(/([A-Z])/g,' $1').replace(/_/g,' ')}</span><b>{String(value)}</b></div>)}</div>}</>}{doc.automatedChecks?.officialMessage&&<p className="muted">Official check: {doc.automatedChecks.officialMessage}</p>}{Array.isArray(doc.automatedChecks?.notes)&&doc.automatedChecks.notes.map((note:string,index:number)=><p className="muted" key={index}>{note}</p>)}{doc.reviewReason&&<p className="muted">{doc.reviewReason}</p>}<a className="secondary-button compact" href={`${apiBase}/api/admin/driver-verifications/${application.id}/documents/${doc.id}/file`} target="_blank" rel="noreferrer">Open document</a><label>Review note / official reference<textarea rows={2} value={notes[doc.id]??doc.reviewReason??''} onChange={e=>setNotes({...notes,[doc.id]:e.target.value})} placeholder="Record the official result or reason for rejection"/></label><div className="verification-review-actions"><button className="primary-button compact" disabled={!!busy} onClick={()=>review(doc,'verified')}>{busy===doc.id+'verified'?'Saving…':'Mark verified'}</button><button className="secondary-button compact" disabled={!!busy} onClick={()=>review(doc,'rejected')}>Reject</button><button className="secondary-button compact" disabled={!!busy} onClick={()=>review(doc,'needs_review')}>Needs review</button></div></section>)}</div>
+    <div className="verification-application-footer"><span>{verifiedRequiredCount} of {requiredTypes.length} required documents verified</span><button className="primary-button compact" disabled={!!busy||application.verified} onClick={approve}>{busy==='approve'?'Approving…':application.verified?'Approved':'Approve driver'}</button></div>
+  </article>;
+}
+
 function DriverAdminRow({driver,approve}:any){return <div className="driver-row"><div className="avatar">{driver.name.split(' ').map((n:string)=>n[0]).join('')}</div><div className="driver-info"><strong>{driver.name}</strong><span>{driver.phone} · {driver.tricycle}</span></div><div className="doc-status"><FileCheck2 size={15}/> {driver.verified?'Verified':'Documents submitted'}</div>{!driver.verified&&<button className="primary-button compact" onClick={approve}>Approve</button>}</div>}
-function RideAdminRow({ride}:any){return <div className="ride-row"><div><strong>{ride.passenger}</strong><span>{ride.pickup} → {ride.destination}</span></div><span className={'ride-status '+ride.status.toLowerCase().replaceAll(' ','-')}>{ride.status}</span></div>}
+function RideAdminRow({ride}:any){return <div className="ride-row"><div><strong>{ride.passenger}</strong><span>{ride.pickup} → {ride.destination}</span></div><span className={'ride-status '+ride.status.toLowerCase().replace(/ /g,'-')}>{ride.status}</span></div>}
 
 function BottomNav({tab,setTab,driver=false}:any){return <nav className={'bottom-nav ' + (driver ? 'driver-bottom-nav' : '')}><button className={tab==='home'?'nav-active':''} onClick={()=>setTab('home')}><Home size={19}/><span>Home</span></button><button className={tab==='requests'||tab==='trips'?'nav-active':''} onClick={()=>setTab(driver?'requests':'trips')}><Activity size={19}/><span>{driver?'Requests':'Trips'}</span></button>{!driver&&<button className="ride-action" onClick={()=>setTab('request')}><CarFront size={20}/></button>}<button className={tab==='safety'?'nav-active':''} onClick={()=>setTab(driver?'trips':'safety')}><ShieldAlert size={19}/><span>{driver?'History':'Safety'}</span></button><button className={tab==='profile'?'nav-active':''} onClick={()=>setTab('profile')}><UserRound size={19}/><span>Profile</span></button></nav>}
 

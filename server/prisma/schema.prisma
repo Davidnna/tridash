@@ -66,6 +66,16 @@ model Driver {
   id             String   @id @default(cuid())
   userId         String   @unique
   name           String
+  firstName      String   @default("")
+  lastName       String   @default("")
+  otherNames     String   @default("")
+  dateOfBirth    DateTime?
+  operatingState String   @default("Ebonyi")
+  verificationStatus String @default("incomplete")
+  identityStatus String   @default("pending")
+  licenseStatus  String   @default("pending")
+  vehicleStatus  String   @default("pending")
+  faceStatus     String   @default("not_started")
   phone          String
   tricycle       String   @default("")
   rating         Float    @default(0)
@@ -89,10 +99,40 @@ model Driver {
   rides   Ride[]
   ratings Rating[]
   incidents Incident[]
+  verificationDocuments DriverVerificationDocument[]
 
   @@index([userId])
   @@index([online])
   @@index([verified])
+}
+
+
+model DriverVerificationDocument {
+  id              String   @id @default(cuid())
+  driverId        String
+  documentType    String   // government_id, drivers_license, vehicle_registration, selfie
+  originalName    String
+  storageKey      String   @unique
+  mimeType        String
+  sizeBytes       Int
+  status          String   @default("uploaded") // uploaded, needs_review, checks_passed, verified, rejected, expired
+  extractedData   Json?
+  automatedChecks Json?
+  providerName    String   @default("")
+  providerReference String @default("")
+  expiryDate      DateTime?
+  reviewReason    String   @default("")
+  reviewedById    String?
+  reviewedAt      DateTime?
+  uploadedAt      DateTime @default(now())
+  verifiedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+  @@index([documentType, status])
 }
 
 model Ride {

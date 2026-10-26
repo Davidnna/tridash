@@ -27,6 +27,14 @@ npm run dev
 
 Open `http://localhost:5173/`. Routes use normal browser paths such as `/request` and `/trips`.
 
+## Driver verification setup
+
+Driver verification now supports separate first/last/other names, date of birth, operating state (initially Ebonyi), private document uploads, document status tracking, expiry/consistency checks when extracted fields are available, and an admin review queue. The required documents are government ID, driving licence, and vehicle registration. A selfie upload is available for a future face-match/liveness integration. Drivers cannot go online or be approved until required documents are marked verified.
+
+After deploying this version, run `npx prisma migrate deploy` from `server` to add the verification fields and `DriverVerificationDocument` table. Set `DRIVER_DOCUMENT_STORAGE_DIR` to a **private, persistent volume** on the backend host and set `DRIVER_DOCUMENT_ENCRYPTION_KEY` to a securely stored 32-byte hex key (generate with `openssl rand -hex 32`). Production uploads are rejected if the encryption key is missing. Do not expose the upload directory as static files or commit uploaded documents. The default path is for local development only; ephemeral production disks can lose files during redeploys. Back up the encrypted volume and encryption key separately and restrict access to both.
+
+Automated OCR and official registry checks are adapter-based and intentionally fail closed. Without provider configuration, uploads are stored securely and placed in the admin review queue; they are not falsely marked as officially verified. Optional environment variables and the JSON adapter contract are documented in `server/.env.example`. Configure only authorised providers, obtain the required consent, and test provider responses before enabling automatic approval. A manual admin decision must include a review note for audit purposes.
+
 ## Environment variables
 
 Create `server/.env` from `server/.env.example`. Never commit `.env` or credential files. For production, use a managed secret store. Set `FRONTEND_URL` to the exact public frontend origin.

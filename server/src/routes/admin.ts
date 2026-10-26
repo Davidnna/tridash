@@ -2,6 +2,8 @@ import { Router } from 'express';
 import prisma from '../utils/database';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '../middleware/auth';
 import { getFirebaseAuth } from '../utils/firebase';
+import { readPrivateDocument } from '../services/privateDocumentStorage';
+import { requiredDocumentTypes } from '../services/driverVerification';
 
 const router = Router();
 
@@ -117,6 +119,93 @@ router.put('/users/:id', requireAuth(), requireAdmin(), async (req: Authenticate
   } catch (error) {
     console.error('Update user error:', error);
     res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+// Driver verification queue with document metadata. Storage keys are never returned to the browser.
+router.get('/driver-verifications', requireAuth(), requireAdmin(), async (_req: AuthenticatedRequest, res) => {
+  try {
+    const applications = await prisma.driver.findMany({
+      where: { OR: [{ verified: false }, { verificationStatus: { not: 'verified' } }] },
+      select: {
+        id: true, userId: true, name: true, firstName: true, lastName: true, otherNames: true, dateOfBirth: true,
+        operatingState: true, verificationStatus: true, identityStatus: true, licenseStatus: true, vehicleStatus: true,
+        faceStatus: true, phone: true, tricycle: true, verified: true, online: true, status: true, createdAt: true, updatedAt: true,
+        user: { select: { email: true } },
+        verificationDocuments: { orderBy: { uploadedAt: 'desc' }, select: {
+          id: true, driverId: true, documentType: true, originalName: true, mimeType: true, sizeBytes: true, status: true,
+          extractedData: true, automatedChecks: true, providerName: true, providerReference: true, expiryDate: true,
+          reviewReason: true, reviewedById: true, reviewedAt: true, uploadedAt: true, verifiedAt: true, createdAt: true, updatedAt: true,
+        } },
+      },
+      orderBy: { updatedAt: 'desc' }, take: 200,
+    });
+    res.json({ applications: applications.map(application => ({ ...application, requiredDocumentTypes: requiredDocumentTypes(application.operatingState) })) });
+  } catch (error) {
+    console.error('Admin driver verification queue error:', error);
+    res.status(500).json({ error: 'Could not load driver verification applications' });
+  }
+});
+
+// Serve a document only to an authenticated administrator.
+router.get('/driver-verifications/:driverId/documents/:documentId/file', requireAuth(), requireAdmin(), async (req: AuthenticatedRequest, res) => {
+  try {
+    const doc = await prisma.driverVerificationDocument.findFirst({ where: { id: String(req.params.documentId), driverId: String(req.params.driverId) } });
+    if (!doc) return res.status(404).json({ error: 'Document not found' });
+    const file = await readPrivateDocument(doc.storageKey);
+    res.setHeader('Content-Type', doc.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${doc.originalName.replace(/["\r\n]/g, '')}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(file);
+  } catch (error) {
+    console.error('Admin document retrieval error:', error);
+    res.status(500).json({ error: 'Could not retrieve document' });
+  }
+});
+
+// Record an admin review for one document. Manual verification requires a reason/audit note.
+router.put('/driver-verifications/:driverId/documents/:documentId', requireAuth(), requireAdmin(), async (req: AuthenticatedRequest, res) => {
+  try {
+    const status = String(req.body?.status || '');
+    const reviewReason = String(req.body?.reviewReason || '').trim().slice(0, 1000);
+    if (!['verified', 'rejected', 'needs_review'].includes(status)) return res.status(400).json({ error: 'Choose a valid review status.' });
+    if ((status === 'verified' || status === 'rejected') && reviewReason.length < 8) return res.status(400).json({ error: 'Add a review note explaining the decision.' });
+    const doc = await prisma.driverVerificationDocument.findFirst({ where: { id: String(req.params.documentId), driverId: String(req.params.driverId) } });
+    if (!doc) return res.status(404).json({ error: 'Document not found' });
+    const updated = await prisma.driverVerificationDocument.update({
+      where: { id: doc.id },
+      data: { status, reviewReason, reviewedById: req.user!.userId, reviewedAt: new Date(), verifiedAt: status === 'verified' ? new Date() : null },
+    });
+    const statusField = doc.documentType === 'government_id' ? 'identityStatus' : doc.documentType === 'drivers_license' ? 'licenseStatus' : doc.documentType === 'selfie' ? 'faceStatus' : 'vehicleStatus';
+    await prisma.driver.update({ where: { id: doc.driverId }, data: { [statusField]: status, verified: false, online: false, status: 'pending', verificationStatus: 'pending_review' } as any });
+    const { storageKey, ...safeDoc } = updated;
+    res.json({ document: safeDoc, message: 'Document review saved.' });
+  } catch (error) {
+    console.error('Admin document review error:', error);
+    res.status(500).json({ error: 'Could not save document review' });
+  }
+});
+
+// Final driver approval is blocked until every required document has passed review.
+router.post('/driver-verifications/:driverId/approve', requireAuth(), requireAdmin(), async (req: AuthenticatedRequest, res) => {
+  try {
+    const driver = await prisma.driver.findUnique({ where: { id: String(req.params.driverId) }, include: { verificationDocuments: true } });
+    if (!driver) return res.status(404).json({ error: 'Driver not found' });
+    if (!driver.firstName || !driver.lastName || !driver.dateOfBirth || !driver.tricycle) return res.status(409).json({ error: "The driver's legal name, date of birth, and vehicle registration details must be completed first." });
+    const latestByType = new Map<string, any>();
+    for (const doc of [...driver.verificationDocuments].sort((a: any, b: any) => b.uploadedAt.getTime() - a.uploadedAt.getTime())) {
+      if (!latestByType.has(doc.documentType)) latestByType.set(doc.documentType, doc);
+    }
+    const verifiedTypes = new Set([...latestByType.entries()].filter(([, doc]) => doc.status === 'verified').map(([type]) => type));
+    const missing = requiredDocumentTypes(driver.operatingState).filter(type => !verifiedTypes.has(type));
+    if (missing.length) return res.status(409).json({ error: 'These required checks are not verified yet: ' + missing.join(', ') });
+    if (process.env.FACE_VERIFICATION_API_URL && driver.faceStatus !== 'verified') return res.status(409).json({ error: 'Facial verification is enabled but has not passed yet.' });
+    const updated = await prisma.driver.update({ where: { id: driver.id }, data: { verified: true, online: false, status: 'active', verificationStatus: 'verified' } });
+    res.json({ driver: updated, message: 'Driver approved after all required document checks passed.' });
+  } catch (error) {
+    console.error('Admin driver approval error:', error);
+    res.status(500).json({ error: 'Could not approve driver' });
   }
 });
 

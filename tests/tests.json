@@ -109,5 +109,32 @@
       "Attempt to submit another rating for the same ride"
     ],
     "expected": "Tridash verifies the exact fare and marks the payment Paid, the rating is saved once, the driver aggregate updates, and a duplicate rating is rejected."
+  },
+  {
+    "name": "Driver document verification requires checks before approval",
+    "viewport": "mobile",
+    "covers": [
+      "separate legal name fields",
+      "private document uploads",
+      "document MIME and size validation",
+      "expiry and cross-document checks",
+      "admin document review audit note",
+      "backend driver approval guard",
+      "backend online-status guard"
+    ],
+    "description": "Verifies driver onboarding stores documents privately, records automated checks when an authorised provider is configured, and does not treat uploads alone as proof of validity.",
+    "steps": [
+      "Sign in with a driver account and open Driver verification",
+      "Enter first name, last name, optional other names, date of birth, phone, tricycle registration and operating state",
+      "Save the personal details",
+      "Accept the document-processing consent and upload a government ID, driving licence and vehicle registration",
+      "Confirm each upload appears with its current check status and no public storage URL",
+      "Sign in as an administrator and open Admin > Drivers",
+      "Open each document using the protected document route and record an official check result or a reason for rejection",
+      "Attempt to approve the driver before all required document checks are verified",
+      "Verify the backend rejects approval until all required documents are verified",
+      "Verify the driver cannot go online or accept rides before final approval"
+    ],
+    "expected": "Documents are stored outside public static assets, status and review audit fields are saved, missing or failed checks remain pending/rejected, and the backend blocks driver approval/online access until requirements pass."
   }
 ]
