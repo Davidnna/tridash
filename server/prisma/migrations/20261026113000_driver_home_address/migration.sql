@@ -1,0 +1,1 @@
+ALTER TABLE "Driver" ADD COLUMN "homeAddress" TEXT NOT NULL DEFAULT '';

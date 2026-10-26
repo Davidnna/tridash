@@ -118,7 +118,9 @@
 
 /* Driver verification workflow */
 .driver-verification-form h3,.driver-document-list h3{font:600 17px 'Space Grotesk';color:#0E2A1C;margin:0 0 14px}
-.verification-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.verification-form-grid,.driver-phone-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.driver-phone-fields label{min-width:0}
+.phone-format-hint{display:block;color:#64746B;font-size:11px;line-height:1.5;margin:-7px 0 13px}
 .driver-verification-form label,.driver-document-list>label:not(.verification-consent){display:block;font-size:11px;font-weight:650;color:#35443B;margin:0 0 13px}
 .driver-verification-form input,.driver-verification-form select{width:100%;display:block;margin-top:7px;border:1px solid #D3E8DA;border-radius:11px;padding:12px;color:#0B1220;background:#FBFCFE;min-height:46px}
 .driver-verification-form .primary-button{margin-top:5px}
@@ -158,7 +160,7 @@
 .automated-check-summary .check-pass{background:#EAF6EE;color:#1E8E5A}
 .automated-check-summary .check-fail{background:#FDEBEC;color:#B13B45}
 .verification-application-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #E8F1EA;padding-top:12px;font-size:10px;color:#65736A}
-@media(max-width:620px){.verification-form-grid,.verification-document-grid{grid-template-columns:1fr}.verification-application-head{flex-wrap:wrap}.verification-application-head .verification-state{margin-left:53px}.verification-application-footer{align-items:flex-start;flex-direction:column}.verification-application-footer button{width:100%}}
+@media(max-width:620px){.verification-form-grid,.driver-phone-fields,.verification-document-grid{grid-template-columns:1fr}.verification-application-head{flex-wrap:wrap}.verification-application-head .verification-state{margin-left:53px}.verification-application-footer{align-items:flex-start;flex-direction:column}.verification-application-footer button{width:100%}}
 .extracted-field-list{margin-top:9px;border-top:1px solid #E8F1EA;padding-top:7px}
 .extracted-field-list>div{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:3px 0;font-size:9px}
 .extracted-field-list span{color:#738078;text-transform:capitalize}

@@ -77,6 +77,7 @@ model Driver {
   vehicleStatus  String   @default("pending")
   faceStatus     String   @default("not_started")
   phone          String
+  homeAddress    String   @default("")
   tricycle       String   @default("")
   rating         Float    @default(0)
   ratingCount    Int      @default(0)

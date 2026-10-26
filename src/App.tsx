@@ -3,7 +3,7 @@ import { Route, Routes, useLocation, useNavigate, useParams } from 'react-router
 import { api } from './api/client';
 import { ws } from './api/websocket';
 import { notifications } from './api/notifications';
-import MapView from './MapView';
+import MapView, { reverseGeocode, type GeoPoint } from './MapView';
 import RequestPageMap from './RequestPageMap';
 import { firebaseAuth, onAuthStateChanged, resendVerification, refreshFirebaseUser, sendResetEmail, signInWithFirebase, signInWithGoogle, signOut, signUpWithFirebase } from './firebase';
 import {
@@ -1032,17 +1032,42 @@ function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, togg
   return <div className="mobile-frame"><section className="screen-head"><button className="back-button" onClick={() => setTab('home')}>←</button><div><div className="eyebrow">RIDE REQUESTS</div><h2>Available trips</h2></div></section><div className="driver-availability-card"><div><strong>{driver?.online ? 'You are online' : 'You are offline'}</strong><span>{driver?.verified ? (driver?.online ? 'Passenger requests can be accepted or declined.' : 'Go online to manage requests.') : 'Your driver account must be verified before you can manage requests.'}</span></div>{driver?.verified && <button onClick={toggleOnline}>{driver?.online ? 'Go offline' : 'Go online'}</button>}</div>{visibleRequests.length ? visibleRequests.map((ride: Ride) => <div className="request-card" key={ride.id}><div><span className="eyebrow">PICKUP</span><strong>{ride.pickup}</strong><span className="destination-line">→ {ride.destination}</span><span className="request-meta"><MapPin size={13} /> Passenger {ride.passenger}</span></div><div className="request-actions"><div><b>₦{ride.amount.toLocaleString()}</b><div className="request-readiness">{!driver?.verified ? 'Awaiting verification' : !driver?.online ? 'Go online to manage' : !hasPayoutAccount ? 'Add payout account' : 'Ready'}</div></div><div className="request-action-buttons"><button className="secondary-button compact" disabled={!canManage} onClick={() => rejectRide(ride)}>Reject</button><button className="primary-button" disabled={!canManage} onClick={async () => { const accepted = await acceptRide(ride); if (accepted) setTab('home'); }}>Accept</button></div></div></div>) : <div className="empty-card"><div className="empty-icon"><Clock3 size={22} /></div><h2>No requests yet</h2><p>Stay online to receive nearby passenger requests.</p></div>}</div>;
 }
 
+const PHONE_COUNTRY_CODES = [
+  { label: 'Nigeria (+234)', value: '+234' },
+  { label: 'Ghana (+233)', value: '+233' },
+  { label: 'Cameroon (+237)', value: '+237' },
+  { label: 'Kenya (+254)', value: '+254' },
+  { label: 'South Africa (+27)', value: '+27' },
+  { label: 'United Kingdom (+44)', value: '+44' },
+  { label: 'United States / Canada (+1)', value: '+1' },
+];
+
+function splitInternationalPhone(rawPhone: string) {
+  const phone = String(rawPhone || '').trim();
+  const digits = phone.replace(/\D/g, '');
+  if (phone.startsWith('+')) {
+    const match = [...PHONE_COUNTRY_CODES].sort((a, b) => b.value.length - a.value.length).find(item => digits.startsWith(item.value.slice(1)));
+    if (match) return { phoneCountryCode: match.value, phoneNationalNumber: digits.slice(match.value.length - 1) };
+  }
+  return { phoneCountryCode: '+234', phoneNationalNumber: digits.replace(/^0+/, '') };
+}
+
+function composeInternationalPhone(countryCode: string, nationalNumber: string) {
+  return `${countryCode}${String(nationalNumber || '').replace(/\D/g, '').replace(/^0+/, '')}`;
+}
+
 function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDriverProfile }: any) {
   const [savedDriver, setSavedDriver] = useState(driver);
   const [form, setForm] = useState({
     firstName: driver.firstName || '', lastName: driver.lastName || '', otherNames: driver.otherNames || '',
     dateOfBirth: driver.dateOfBirth ? String(driver.dateOfBirth).slice(0, 10) : '',
-    phone: driver.phone || profile.phone || '', tricycle: driver.tricycle || '', operatingState: driver.operatingState || 'Ebonyi',
+    ...splitInternationalPhone(driver.phone || profile.phone || ''), homeAddress: driver.homeAddress || '', tricycle: driver.tricycle || '', operatingState: driver.operatingState || 'Ebonyi',
   });
   const [documents, setDocuments] = useState<any[]>([]);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [profileSaved, setProfileSaved] = useState(Boolean(driver.firstName && driver.lastName && driver.dateOfBirth && driver.tricycle));
+  const [locatingHome, setLocatingHome] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(Boolean(driver.firstName && driver.lastName && driver.dateOfBirth && driver.homeAddress && driver.tricycle));
   const [uploading, setUploading] = useState<string | null>(null);
   const [lastChecks, setLastChecks] = useState<any>(null);
 
@@ -1053,19 +1078,46 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDr
         const saved = result.data.driver;
         setSavedDriver(saved);
         setDriverProfile?.((current:any) => ({ ...(current || {}), ...saved }));
-        setProfileSaved(Boolean(saved.firstName && saved.lastName && saved.dateOfBirth && saved.tricycle));
-        setForm((current: any) => ({ ...current, firstName: saved.firstName || current.firstName, lastName: saved.lastName || current.lastName, otherNames: saved.otherNames || current.otherNames, dateOfBirth: saved.dateOfBirth ? String(saved.dateOfBirth).slice(0,10) : current.dateOfBirth, phone: saved.phone || current.phone, tricycle: saved.tricycle || current.tricycle, operatingState: saved.operatingState || 'Ebonyi' }));
+        setProfileSaved(Boolean(saved.firstName && saved.lastName && saved.dateOfBirth && saved.homeAddress && saved.tricycle));
+        setForm((current: any) => ({ ...current, firstName: saved.firstName || current.firstName, lastName: saved.lastName || current.lastName, otherNames: saved.otherNames || current.otherNames, dateOfBirth: saved.dateOfBirth ? String(saved.dateOfBirth).slice(0,10) : current.dateOfBirth, ...splitInternationalPhone(saved.phone || composeInternationalPhone(current.phoneCountryCode, current.phoneNationalNumber)), homeAddress: saved.homeAddress || current.homeAddress, tricycle: saved.tricycle || current.tricycle, operatingState: saved.operatingState || 'Ebonyi' }));
       }
       setDocuments(Array.isArray(result.data?.documents) ? result.data.documents : []);
     } catch { /* keep the editable onboarding form available */ }
   };
   useEffect(() => { void loadVerification(); }, [driver.id]);
 
+  const useCurrentLocationForHome = () => {
+    if (!navigator.geolocation) { notify('Location is not available in this browser. Enter your home address manually.'); return; }
+    setLocatingHome(true);
+    navigator.geolocation.getCurrentPosition(async position => {
+      try {
+        const point: GeoPoint = { lat: position.coords.latitude, lng: position.coords.longitude };
+        const address = await reverseGeocode(point);
+        if (address) {
+          setForm((current: any) => ({ ...current, homeAddress: address }));
+          setProfileSaved(false);
+          notify('Current location added as your home address. Please check it before saving.');
+        } else {
+          notify('We could not turn your current location into an address. Please enter it manually.');
+        }
+      } catch { notify('Address lookup failed. Please enter your home address manually.'); }
+      finally { setLocatingHome(false); }
+    }, error => {
+      const message = error.code === 1 ? 'Location permission was denied.' : error.code === 3 ? 'Location lookup timed out.' : 'Your current location is unavailable.';
+      notify(message + ' You can enter your home address manually.');
+      setLocatingHome(false);
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+  };
+
   const saveApplication = async () => {
+    const internationalPhone = composeInternationalPhone(form.phoneCountryCode, form.phoneNationalNumber);
+    if (!form.homeAddress.trim()) { notify('Enter your home address or use your current location.'); return; }
+    if (!/^\+[1-9]\d{7,14}$/.test(internationalPhone)) { notify('Enter a valid phone number and select its country code.'); return; }
     setBusy(true);
     try {
-      const res = await api.put('/api/driver/me/verification', form);
-      await saveProfile({ ...profile, name: [form.firstName, form.otherNames, form.lastName].filter(Boolean).join(' '), phone: form.phone, role: 'driver' });
+      const payload = { ...form, phone: internationalPhone, homeAddress: form.homeAddress.trim() };
+      const res = await api.put('/api/driver/me/verification', payload);
+      await saveProfile({ ...profile, name: [form.firstName, form.otherNames, form.lastName].filter(Boolean).join(' '), phone: internationalPhone, role: 'driver' });
       if (res.data?.driver) { setSavedDriver(res.data.driver); setDriverProfile?.(res.data.driver); setProfileSaved(true); notify('Driver details saved. Upload the required documents next.'); }
       await loadVerification();
     } catch (error: any) { notify(error?.message || 'Driver details could not be saved.'); }
@@ -1076,7 +1128,7 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDr
     if (!file) return;
     if (!consent) { notify('Please read and accept the secure document-processing consent first.'); return; }
     if (file.size > 8 * 1024 * 1024) { notify('Each document must be smaller than 8 MB.'); return; }
-    if (!profileSaved || !form.firstName.trim() || !form.lastName.trim() || !form.dateOfBirth || !form.tricycle.trim()) { notify('Save your personal details before uploading documents.'); return; }
+    if (!profileSaved || !form.firstName.trim() || !form.lastName.trim() || !form.dateOfBirth || !form.tricycle.trim()) { notify('Save your personal and vehicle details before uploading documents.'); return; }
     setUploading(documentType);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -1118,10 +1170,16 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDr
       <div className="verification-form-grid"><label>First name *<input autoComplete="given-name" value={form.firstName} onChange={e=>{setForm({...form,firstName:e.target.value});setProfileSaved(false)}} placeholder="First name on your ID"/></label><label>Last name *<input autoComplete="family-name" value={form.lastName} onChange={e=>{setForm({...form,lastName:e.target.value});setProfileSaved(false)}} placeholder="Last name on your ID"/></label></div>
       <label>Other names (optional)<input value={form.otherNames} onChange={e=>{setForm({...form,otherNames:e.target.value});setProfileSaved(false)}} placeholder="Middle name or additional names"/></label>
       <label>Date of birth *<input type="date" value={form.dateOfBirth} max={new Date().toISOString().slice(0,10)} onChange={e=>{setForm({...form,dateOfBirth:e.target.value});setProfileSaved(false)}}/></label>
-      <label>Phone number *<input type="tel" value={form.phone} onChange={e=>{setForm({...form,phone:e.target.value});setProfileSaved(false)}} placeholder="080…"/></label>
-      <label>Tricycle registration number *<input value={form.tricycle} onChange={e=>{setForm({...form,tricycle:e.target.value.toUpperCase()});setProfileSaved(false)}} placeholder="EB-123-XY"/></label>
+      <div className="driver-phone-fields"><label>Country code *<select value={form.phoneCountryCode} onChange={e=>{setForm({...form,phoneCountryCode:e.target.value});setProfileSaved(false)}}>{PHONE_COUNTRY_CODES.map(country=><option key={country.value} value={country.value}>{country.label}</option>)}</select></label><label>Phone number *<input type="tel" inputMode="tel" autoComplete="tel-national" value={form.phoneNationalNumber} onChange={e=>{setForm({...form,phoneNationalNumber:e.target.value});setProfileSaved(false)}} placeholder="8031234567"/></label></div><small className="phone-format-hint">Enter the number without the country code. We save it in international format, for example +2348031234567.</small>
+      <label>Home address *<textarea required autoComplete="street-address" rows={2} value={form.homeAddress} onChange={e=>{setForm({...form,homeAddress:e.target.value});setProfileSaved(false)}} placeholder="House number, street, area, city" /></label>
+      <button type="button" className="secondary-button full" disabled={locatingHome} onClick={useCurrentLocationForHome}><Navigation size={16}/>{locatingHome ? 'Finding your location…' : 'Use my current location as home address'}</button>
+      <small className="phone-format-hint">Your device location is used to look up an address. Check the result before saving. Your home address is for account and verification purposes, not for display to passengers.</small>
+    </div>
+    <div className="form-card driver-verification-form">
+      <h3>Vehicle details</h3>
+      <label>Tricycle registration number *<input autoComplete="off" value={form.tricycle} onChange={e=>{setForm({...form,tricycle:e.target.value.toUpperCase()});setProfileSaved(false)}} placeholder="EB-123-XY"/></label>
       <label>Operating state *<select value={form.operatingState} onChange={e=>{setForm({...form,operatingState:e.target.value});setProfileSaved(false)}}><option>Ebonyi</option><option>Abia</option><option>Anambra</option><option>Enugu</option><option>Imo</option><option>Rivers</option><option>Cross River</option><option>Akwa Ibom</option><option>Other</option></select></label>
-      <button className="primary-button full" disabled={busy} onClick={saveApplication}>{busy ? 'Saving details…' : 'Save personal details'}</button>
+      <button className="primary-button full" disabled={busy} onClick={saveApplication}>{busy ? 'Saving details…' : 'Save personal and vehicle details'}</button>
     </div>
     <div className="form-card driver-document-list"><h3>Required documents</h3><p className="muted">Accepted formats: JPG, PNG, WebP or PDF. Maximum 8 MB per file. We run automated checks where supported; official verification is only marked complete when an authorised service or an admin review confirms it.</p>
       {requiredDocs.map(doc => { const uploaded = documents.find(item => item.documentType === doc.type); return <div className="driver-upload-row" key={doc.type}><div className="driver-upload-heading"><div><strong>{doc.label} {doc.required ? '*' : '(optional)'}</strong><small>{doc.hint}</small></div><span className={'verification-state '+statusClass(uploaded?.status || 'pending')}>{statusLabel(uploaded?.status || 'pending')}</span></div>{uploaded && <div className="driver-upload-meta"><span>{uploaded.originalName}</span>{uploaded.expiryDate && <span>Expiry: {new Date(uploaded.expiryDate).toLocaleDateString()}</span>}{uploaded.reviewReason && <small>{uploaded.reviewReason}</small>}</div>}<label className="upload-file-control">{uploading===doc.type ? 'Processing upload…' : uploaded ? 'Replace document' : 'Choose file'}<input type="file" accept={doc.accept} disabled={!!uploading} onChange={e=>{void uploadDocument(doc.type,e.target.files?.[0]);e.currentTarget.value='';}}/></label></div>; })}
