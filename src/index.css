@@ -78,3 +78,33 @@
 .spin{animation:payout-spin .9s linear infinite}
 @keyframes payout-spin{to{transform:rotate(360deg)}}
 @media(max-width:520px){.payout-card{padding:15px}.payout-saved-summary{align-items:flex-start}.payout-saved-status{font-size:8px}.bank-picker-options{max-height:200px}}
+
+/* Refined bank logos and account-number input */
+.bank-logo{width:36px;height:36px;flex:0 0 36px;display:inline-flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid #E5EEE8;border-radius:12px;background:linear-gradient(145deg,#FFFFFF,#F0F7F2);color:#1E6C45;font:700 11px 'Space Grotesk';letter-spacing:-.03em;box-shadow:0 2px 5px rgba(14,42,28,.04)}
+.bank-logo img{display:block;width:25px;height:25px;object-fit:contain;border-radius:5px}
+.bank-logo-large{width:44px;height:44px;flex-basis:44px;border-radius:14px;background:#fff;box-shadow:0 3px 10px rgba(14,42,28,.07)}
+.bank-logo-large img{width:30px;height:30px}
+.bank-picker-selected{gap:12px}
+.bank-picker-trigger{background:linear-gradient(120deg,#FFFFFF 0%,#F7FBF8 100%);box-shadow:0 2px 8px rgba(14,42,28,.025);transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease}
+.bank-picker-trigger:hover,.bank-picker-trigger.is-open{box-shadow:0 5px 16px rgba(14,42,28,.07);transform:translateY(-1px)}
+.bank-picker-trigger>svg{flex:none;color:#668174}
+.bank-picker-menu{box-shadow:0 22px 48px rgba(14,42,28,.18);border-color:#D7E8DC}
+.bank-picker-search{background:#FBFDFC;padding:11px 13px}
+.bank-picker-options{max-height:270px;padding:6px}
+.bank-option{display:flex;align-items:center;justify-content:flex-start;gap:11px;padding:9px 10px;min-height:55px;transition:background .14s ease,transform .14s ease}
+.bank-option:hover{transform:translateX(2px)}
+.bank-option.selected{background:#EDF8F0;box-shadow:inset 0 0 0 1px #D6EBDD}
+.bank-option-copy{flex:1;min-width:0;font-size:12px;font-weight:650;overflow-wrap:anywhere}
+.bank-option-copy small{font-weight:400}
+.bank-picker-footer{padding:10px 13px}
+.payout-account-label-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 7px}
+.payout-account-label-row .payout-field-label{margin:0}
+.payout-field-hint{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#718078;background:#EEF5F0;border-radius:999px;padding:5px 8px}
+.payout-account-input-wrap{display:flex;align-items:center;gap:11px;padding:0 13px;border:1px solid #D3E8DA;border-radius:13px;background:#FBFCFE;transition:border-color .18s ease,box-shadow .18s ease,background .18s ease}
+.payout-account-input-wrap:focus-within{border-color:#56A977;background:#fff;box-shadow:0 0 0 4px rgba(30,142,90,.09)}
+.payout-account-input-wrap>svg{flex:none;color:#6F8B7B}
+.payout-account-input{min-width:0;border:0!important;outline:none!important;box-shadow:none!important;background:transparent!important;padding:14px 0!important;letter-spacing:.11em!important}
+.payout-account-confirm{box-shadow:0 4px 14px rgba(14,42,28,.035)}
+.payout-actions .secondary-button,.payout-actions .primary-button{min-height:47px;border-radius:13px}
+.payout-security-note{background:#F7FAF8;border-radius:10px;padding:10px;margin-top:14px}
+@media(max-width:520px){.bank-picker-options{max-height:235px}.bank-logo{width:34px;height:34px;flex-basis:34px}.bank-logo-large{width:42px;height:42px;flex-basis:42px}.payout-account-input-wrap{padding:0 11px}}
