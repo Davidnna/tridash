@@ -848,7 +848,38 @@ function PublicSite() {
 
 function NotFoundPage() {
   const navigate = useNavigate();
-  return <div className="mobile-frame"><div className="empty-card not-found-card"><div className="empty-icon"><Search size={24}/></div><div className="eyebrow">404</div><h2>Page not found</h2><p>The Tridash page you requested does not exist or may have moved.</p><button className="primary-button" onClick={() => navigate('..')}>Return to Tridash</button></div></div>;
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = 'Page not found | Tridash';
+    return () => { document.title = previousTitle; };
+  }, []);
+
+  return <main className="not-found-page" id="main-content">
+    <div className="not-found-topbar">
+      <Link to="/" className="public-brand" aria-label="Tridash home"><span className="public-brand-mark"><Zap size={19} fill="currentColor" aria-hidden="true" /></span><span>tridash</span></Link>
+      <span className="not-found-help">Need a hand? <Link to="/contact">Contact us</Link></span>
+    </div>
+    <section className="not-found-content" aria-labelledby="not-found-title">
+      <div className="not-found-art" aria-hidden="true">
+        <div className="not-found-orbit not-found-orbit-a" />
+        <div className="not-found-orbit not-found-orbit-b" />
+        <div className="not-found-map-pin"><MapPin size={54} strokeWidth={1.7} /></div>
+        <span className="not-found-route-dot not-found-route-dot-a" />
+        <span className="not-found-route-dot not-found-route-dot-b" />
+        <span className="not-found-route-line" />
+        <span className="not-found-error-code">404</span>
+      </div>
+      <p className="public-kicker"><span className="public-kicker-dot" /> WRONG TURN</p>
+      <h1 id="not-found-title">Looks like this page took a detour.</h1>
+      <p className="not-found-description">We can’t find the page you’re looking for. It may have moved, the address may be incorrect, or the link may have expired.</p>
+      <div className="not-found-actions">
+        <Link to="/" className="public-button"><Zap size={17} aria-hidden="true" /> Go to Tridash home</Link>
+        <button type="button" className="public-button public-button-outline" onClick={() => navigate(-1)}>Go back</button>
+      </div>
+      <div className="not-found-suggestions"><span>Or try one of these:</span><Link to="/how-it-works">How it works</Link><Link to="/drive">Become a driver</Link><Link to="/faq">FAQs</Link></div>
+    </section>
+    <footer className="not-found-footer"><span>© {new Date().getFullYear()} Tridash</span><span>Local rides, made more straightforward.</span></footer>
+  </main>;
 }
 
 // Google Maps universal navigation link. Coordinates are preferred because they
