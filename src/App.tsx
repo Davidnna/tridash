@@ -1038,26 +1038,47 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab }: any
 }
 
 const BANK_LOGO_DOMAINS: Array<[string, string]> = [
+  // Nigerian commercial banks
   ['access bank', 'accessbankplc.com'], ['gtbank', 'gtbank.com'], ['guaranty trust', 'gtbank.com'],
   ['zenith', 'zenithbank.com'], ['first bank', 'firstbanknigeria.com'], ['firstbank', 'firstbanknigeria.com'],
-  ['united bank for africa', 'uba.africa'], ['uba', 'uba.africa'], ['fidelity', 'fidelitybank.ng'],
+  ['united bank for africa', 'ubagroup.com'], ['uba', 'ubagroup.com'], ['fidelity', 'fidelitybank.ng'],
   ['fcmb', 'fcmb.com'], ['stanbic', 'stanbicibtcbank.com'], ['wema', 'wemabank.com'],
   ['sterling', 'sterling.ng'], ['union bank', 'unionbankng.com'], ['polaris', 'polarisbanklimited.com'],
   ['ecobank', 'ecobank.com'], ['keystone', 'keystonebankng.com'], ['jaiz', 'jaizbankplc.com'],
-  ['unity bank', 'unitybankng.com'], ['opay', 'opayweb.com'], ['moniepoint', 'moniepoint.com'],
-  ['kuda', 'kuda.com'], ['palmpay', 'palmpay.com'], ['vfd', 'vfdbank.com'],
-  ['providus', 'providusbank.com'], ['titan trust', 'titantrustbank.com'], ['parallex', 'parallexbank.com'],
-  ['premium trust', 'premiumtrustbank.com'], ['globus', 'globusbank.com'], ['citibank', 'citibank.com'],
-  ['standard chartered', 'sc.com'], ['heritage', 'heritagebank.com.ng'],
+  ['unity bank', 'unitybankng.com'], ['providus', 'providusbank.com'], ['titan trust', 'titantrustbank.com'],
+  ['parallex', 'parallexbank.com'], ['premium trust', 'premiumtrustbank.com'], ['globus', 'globusbank.com'],
+  ['citibank', 'citibank.com'], ['standard chartered', 'sc.com'], ['heritage', 'heritagebank.com.ng'],
+  ['suntrust', 'suntrustng.com'], ['coronation', 'coronationmb.com'], ['lotus bank', 'lotusbank.com'],
+  ['optimus', 'optimusbank.com'], ['signature bank', 'signaturebankng.com'], ['living trust', 'livingtrustmfb.com'],
+  ['rand merchant', 'randmerchantbank.com'], ['fmbn', 'fmbn.com.ng'], ['bank of industry', 'boi.ng'],
+  ['development bank of nigeria', 'dbn.com.ng'], ['afriland', 'afrilandfirstbank.com'],
+  // Digital banks, payment banks and fintech wallets commonly returned by Paystack
+  ['opay', 'opayweb.com'], ['9 payment service', '9psb.com.ng'], ['9psb', '9psb.com.ng'],
+  ['moniepoint', 'moniepoint.com'], ['kuda', 'kuda.com'], ['palmpay', 'palmpay.com'],
+  ['paga', 'mypaga.com'], ['carbon', 'getcarbon.co'], ['fairmoney', 'fairmoney.io'],
+  ['smartcash', 'smartcashpsb.ng'], ['sparkle', 'sparkle.ng'], ['rubies', 'rubies.ng'],
+  ['eyowo', 'eyowo.com'], ['vfd', 'vfdbank.com'], ['vbank', 'vbank.ng'],
+  ['mint', 'mintyn.com'], ['tangerine', 'tangerine.africa'], ['paycom', 'paycom.ng'],
+  ['paystack', 'paystack.com'], ['flutterwave', 'flutterwave.com'], ['interswitch', 'interswitchgroup.com'],
+  ['mutual benefits', 'mutualbenefitsnigeria.com'], ['bowen', 'bowenmfbank.com'],
+  ['infinity', 'infinitymfb.com'], ['fortis', 'fortisbank.com.ng'], ['anchor', 'anchor.ng'],
+  ['quickfund', 'quickfundmfb.com'], ['unical', 'unicalmfb.com'], ['bainescredit', 'bainescredit.com'],
+  ['premium trust', 'premiumtrustbank.com'], ['parallex', 'parallexbank.com'],
 ];
 
 function BankLogo({ name, size = 'normal' }: { name: string; size?: 'normal' | 'large' }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const normalizedName = name.toLocaleLowerCase();
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const normalizedName = name.toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const domain = BANK_LOGO_DOMAINS.find(([alias]) => normalizedName.includes(alias))?.[1];
   const initials = name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'BK';
+  const logoSources = domain ? [
+    `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`,
+    `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`,
+  ] : [];
   return <span className={`bank-logo ${size === 'large' ? 'bank-logo-large' : ''}`} aria-hidden="true">
-    {domain && !imageFailed ? <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=128`} alt="" loading="lazy" onError={() => setImageFailed(true)} /> : <span>{initials}</span>}
+    {sourceIndex < logoSources.length
+      ? <img src={logoSources[sourceIndex]} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setSourceIndex(index => index + 1)} />
+      : <span>{initials}</span>}
   </span>;
 }
 
