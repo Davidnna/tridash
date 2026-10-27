@@ -81,18 +81,6 @@ type Profile = {
   role: Role;
 };
 
-const fallbackRides: Ride[] = [
-  { id: 'ride-101', passenger: 'Kelechi', driver: 'Chinedu', pickup: 'Presidential Road', destination: 'Akanu Ibiam Airport', status: 'Accepted', amount: 2500, tricycle: 'EB-214-KP', paymentStatus: 'Pending' },
-  { id: 'ride-102', passenger: 'Amaka', driver: null, pickup: 'Abakpa Junction', destination: 'CAS Campus', status: 'Requested', amount: 1800, paymentStatus: 'Pending' },
-  { id: 'ride-103', passenger: 'David', driver: 'Emeka', pickup: 'Waterworks', destination: 'Main Market', status: 'Completed', amount: 1500, rating: 5, paymentStatus: 'Paid', tricycle: 'EB-991-XQ' }
-];
-
-const fallbackDrivers: Driver[] = [
-  { id: 'driver-1', name: 'Chinedu Okafor', phone: '0803 555 0142', rating: 4.9, verified: true, online: true, tricycle: 'EB-214-KP', documents: ['Government ID', 'Tricycle registration'], status: 'active' },
-  { id: 'driver-2', name: 'Emeka Nwosu', phone: '0814 201 8820', rating: 4.7, verified: true, online: false, tricycle: 'EB-991-XQ', documents: ['Government ID', 'Tricycle registration'], status: 'active' },
-  { id: 'driver-3', name: 'Ifeanyi Eze', phone: '0706 441 9021', rating: 0, verified: false, online: false, tricycle: 'EB-403-ZR', documents: ['Government ID', 'Tricycle registration'], status: 'pending' }
-];
-
 const navigateFromRoot = (navigate: ReturnType<typeof useNavigate>, pathname: string, target: string) => {
   const cleanTarget = target.replace(/^\/+/, '');
   const depth = pathname.split('/').filter(Boolean).length;
@@ -167,8 +155,8 @@ function App() {
       rootNavigate(workspaceMode === 'driver' ? 'driver/profile' : 'profile');
     }
   };
-  const [rides, setRides] = useState<Ride[]>(fallbackRides);
-  const [drivers, setDrivers] = useState<Driver[]>(fallbackDrivers);
+  const [rides, setRides] = useState<Ride[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [driverProfile, setDriverProfile] = useState<Driver | null>(null);
   const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [activeRide, setActiveRide] = useState<Ride | null>(null);
@@ -331,7 +319,7 @@ function App() {
           const current = ridesRes.data.rides.find((r: Ride) => ['Requested', 'Accepted', 'In Progress'].includes(r.status));
           setActiveRide(current || null);
         }
-        if (mounted && Array.isArray(driversRes.data?.drivers) && driversRes.data.drivers.length) setDrivers(driversRes.data.drivers);
+        if (mounted && Array.isArray(driversRes.data?.drivers)) setDrivers(driversRes.data.drivers);
         if (mounted && profileRes.data?.profile) {
           setProfile(profileRes.data.profile);
           const profileRole = profileRes.data.profile.role as Role | undefined;
@@ -339,7 +327,9 @@ function App() {
         }
         if (mounted && driverRes.data?.driver) setDriverProfile(driverRes.data.driver);
         if (mounted && Array.isArray(notificationsRes.data?.notifications)) setNotificationItems(notificationsRes.data.notifications);
-      } catch {}
+      } catch (error: any) {
+        if (mounted) notify(error?.message || 'We could not load ride data. Please refresh to try again.');
+      }
       if (mounted) setLoading(false);
     })();
     const refreshTimer = window.setInterval(() => { loadNotifications(); }, 15000);
