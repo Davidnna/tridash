@@ -5,7 +5,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import { initializeFirebase } from './utils/firebase';
-import { ensurePaymentCheckoutSchema } from './utils/payment-schema';
+import { ensureRuntimeSchema } from './utils/payment-schema';
 import { setupWebSocket } from './services/websocket';
 
 // Import routes
@@ -83,7 +83,7 @@ const PORT = process.env.PORT || 3001;
 // Ensure the Payment table matches the Prisma model before accepting requests.
  // This safely adds the nullable checkout URL column on existing databases,
  // including provider migrations where the schema was not fully migrated.
-ensurePaymentCheckoutSchema()
+ensureRuntimeSchema()
   .then(() => {
     httpServer.listen(PORT, () => {
       console.log(`🚀 Tridash server running on port ${PORT}`);
