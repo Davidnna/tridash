@@ -261,7 +261,7 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
     // Keep same-ride initialization serialized across app instances. The lock
     // is held until Paystack has returned a URL and the pending row is saved.
     const session = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${ride.id}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${ride.id})) IS NULL AS locked`;
 
       const existing = await tx.payment.findFirst({
         where: { rideId: ride.id, userId: req.user!.userId, status: 'Pending' },
