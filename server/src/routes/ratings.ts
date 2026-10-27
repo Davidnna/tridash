@@ -7,6 +7,10 @@ const router = Router();
 // Create rating
 router.post('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
   try {
+    if (req.user!.role !== 'passenger') {
+      return res.status(403).json({ error: 'Only passenger accounts can rate completed rides' });
+    }
+
     const { rideId, rating, review } = req.body;
 
     const ride = await prisma.ride.findUnique({
