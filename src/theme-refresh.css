@@ -1,0 +1,73 @@
+/* Tridash visual refresh: favicon-matched dark green + yellow, off-white, and light green.
+   Kept in one isolated stylesheet so the complete visual experiment is easy to revert. */
+:root{
+  color-scheme:light;
+  --tri-dark:#0E2A1C;
+  --tri-dark-soft:#183D2A;
+  --tri-yellow:#FDB913;
+  --tri-yellow-light:#F7D978;
+  --tri-offwhite:#F5F5F2;
+  --tri-paper:#FFFFFF;
+  --tri-light-green:#B9C9BA;
+  --tri-green:#1E8E5A;
+  --tri-green-pale:#E4EEE4;
+  --tri-gradient-brand:linear-gradient(125deg,#0E2A1C 0%,#1E8E5A 48%,#FDB913 100%);
+  --tri-gradient-highlight:linear-gradient(115deg,#FDB913 0%,#F7D978 45%,#B9C9BA 100%);
+  --tri-gradient-soft:linear-gradient(135deg,#F5F5F2 0%,#F7F8F0 42%,#DCE8D8 100%);
+  --tri-gradient-card:linear-gradient(145deg,#FFFFFF 0%,#F5F5F2 55%,#E4EEE4 100%);
+  --tri-gradient-dark:linear-gradient(135deg,#0E2A1C 0%,#183D2A 58%,#1E8E5A 100%);
+}
+html{scroll-behavior:smooth;background:var(--tri-offwhite)}
+body,.app-shell{background:var(--tri-gradient-soft);color:var(--tri-dark)}
+.topbar{background:rgba(14,42,28,.97);border-bottom:1px solid rgba(253,185,19,.4);box-shadow:0 5px 22px rgba(14,42,28,.12)}
+.topbar .brand{color:var(--tri-offwhite)}
+.brand-mark{background:var(--tri-gradient-highlight);color:var(--tri-dark);box-shadow:0 4px 16px rgba(253,185,19,.24)}
+.topbar .role-chip{background:rgba(253,185,19,.14);border:1px solid rgba(253,185,19,.4);color:#FFE6A0}
+.topbar .icon-button,.topbar .back-button,.topbar .workspace-trigger{background:#F5F5F2;color:#0E2A1C;border-color:#B9C9BA}
+.role-menu{background:#FDFDF9;border-color:#B9C9BA;box-shadow:0 18px 42px rgba(14,42,28,.2)}
+.role-menu button:hover,.role-menu button.active{background:linear-gradient(120deg,#F5F5F2,#DCE8D8)}
+.primary-button{background:var(--tri-gradient-highlight);color:var(--tri-dark);border:1px solid rgba(14,42,28,.08);box-shadow:0 7px 18px rgba(253,185,19,.22);background-size:180% 180%;transition:transform .18s ease,box-shadow .18s ease,background-position .35s ease}
+.primary-button:hover{background:var(--tri-gradient-brand);color:#fff;box-shadow:0 10px 24px rgba(14,42,28,.22);transform:translateY(-1px);background-position:100% 50%}
+.secondary-button{background:linear-gradient(120deg,#E5EEE4 0%,#F5F5F2 100%);color:var(--tri-dark);border:1px solid rgba(185,201,186,.9)}
+.secondary-button:hover{background:var(--tri-gradient-highlight);color:var(--tri-dark)}
+:where(.primary-button,.secondary-button){min-height:44px}
+.ride-card,.empty-card,.feature-card,.status-card,.driver-card,.form-card,.history-item,.request-card,.verification-card,.payment-box,.settings-row,.passenger-card,.trip-details,.admin-panel,.profile-card{background:var(--tri-gradient-card);border-color:rgba(185,201,186,.86);box-shadow:0 10px 28px rgba(14,42,28,.065)}
+.ride-card,.feature-card,.status-card{position:relative;isolation:isolate}
+.ride-card:before,.feature-card:before,.status-card:before{content:"";position:absolute;inset:0 0 auto;height:3px;border-radius:inherit;background:var(--tri-gradient-highlight);pointer-events:none;z-index:-1}
+.feature-card:nth-child(3n+2){background:linear-gradient(140deg,#FFFFFF 0%,#FBF4D9 100%)}
+.feature-card:nth-child(3n){background:linear-gradient(140deg,#F5F5F2 0%,#E0EBDD 100%)}
+.hero-copy h1,.screen-head h2,.admin-head h1{color:var(--tri-dark)}
+.hero-copy h1 strong{color:var(--tri-green)}
+.bottom-nav{background:rgba(245,245,242,.97);border-color:rgba(185,201,186,.9);box-shadow:0 -8px 28px rgba(14,42,28,.08)}
+.bottom-nav .nav-active,.driver-bottom-nav button.nav-active{color:var(--tri-dark);background:linear-gradient(125deg,#F5F5F2,#DCE8D8);border-radius:12px}
+.bottom-nav .ride-action{background:var(--tri-gradient-highlight);color:var(--tri-dark);box-shadow:0 8px 20px rgba(253,185,19,.3)}
+.role-chip,.count-pill,.ride-status{background:linear-gradient(110deg,#E4EEE4,#F5F5F2);color:var(--tri-dark);border:1px solid rgba(185,201,186,.7)}
+.route:before{border-left-color:#B9C9BA}
+.dot{border-color:var(--tri-green)}
+.destination-dot,.tridash-map-marker.destination{border-color:#fff;background:var(--tri-yellow)}
+.map-card{background:linear-gradient(145deg,#E4EEE4,#F7E9B8);border-color:#B9C9BA}
+.map-error-overlay{background:rgba(255,255,255,.97);border-color:#B9C9BA;color:#0E2A1C}
+.online-card,.safety-hero,.admin-head{background:var(--tri-gradient-dark);color:#fff;border-color:rgba(253,185,19,.35)}
+.online-card strong,.safety-hero strong,.admin-head h1{color:#fff}
+.online-card p,.safety-hero p{color:#E4EEE4}
+.online-card button{background:rgba(253,185,19,.16);border:1px solid rgba(253,185,19,.4);color:#FFF0BF}
+.safety-hero svg{color:var(--tri-yellow)}
+.panel-head{background:linear-gradient(120deg,#F5F5F2,#E4EEE4);border-radius:12px;padding:10px}
+.form-card input,.form-card textarea,.form-card select,.driver-verification-form input,.driver-verification-form select,.driver-verification-form textarea{background:#fff;border-color:#B9C9BA;color:#17231A}
+.form-card input:focus,.form-card textarea:focus,.form-card select:focus,.driver-verification-form input:focus,.driver-verification-form select:focus{border-color:var(--tri-green);box-shadow:0 0 0 4px rgba(30,142,90,.12)}
+.empty-icon,.feature-icon,.status-icon,.verified-badge,.history-icon{background:var(--tri-gradient-highlight);color:var(--tri-dark)}
+.avatar{background:var(--tri-gradient-dark);color:#fff}
+.verified{color:#176A43}
+.payout-saved-summary,.payout-account-confirm,.verification-check-results{background:linear-gradient(125deg,#F5F5F2,#E4EEE4);border-color:#B9C9BA}
+.payout-saved-icon{background:var(--tri-gradient-highlight);color:var(--tri-dark)}
+:where(a,button,input,select,textarea,[role="button"],[tabindex]:not([tabindex="-1"])):focus-visible{outline:3px solid #0E2A1C;outline-offset:3px;box-shadow:0 0 0 2px #F5F5F2,0 0 0 5px rgba(253,185,19,.8)!important}
+::selection{background:#FDB913;color:#0E2A1C}
+a{text-underline-offset:3px}
+@keyframes tri-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes tri-gradient-flow{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+.page{animation:tri-enter .3s ease-out both}
+.primary-button:hover,.bottom-nav .ride-action:hover{background-position:100% 50%}
+.feature-card,.ride-card,.status-card{transition:transform .2s ease,box-shadow .2s ease}
+.feature-card:hover,.ride-card:hover,.status-card:hover{transform:translateY(-2px);box-shadow:0 16px 34px rgba(14,42,28,.11)}
+@media(max-width:360px){.mobile-frame{padding-left:12px;padding-right:12px}.topbar{padding-left:12px;padding-right:12px}.role-menu{right:8px;width:min(255px,calc(100vw - 16px))}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto!important}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
