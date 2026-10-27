@@ -534,9 +534,11 @@ function App() {
       setTab('home');
       notify('Ride requested. Finding a verified driver...');
     } catch (error: any) {
-      const serverMessage = String(error?.response?.data?.error || '').trim();
+      // The shared API client throws a standard Error containing the API's
+      // response message, rather than an Axios-style response object.
+      const serverMessage = String(error?.response?.data?.error || error?.message || '').trim();
       notify(serverMessage || 'We could not save the ride request. Please try again.');
-      if (!serverMessage) console.error('Create ride request failed:', error);
+      console.error('Create ride request failed:', error);
     }
   };
 
