@@ -52,6 +52,10 @@ router.get('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
 // Create new ride
 router.post('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
   try {
+    if (req.user!.role !== 'passenger') {
+      return res.status(403).json({ error: 'Only passenger accounts can request rides' });
+    }
+
     const { pickup, destination, amount, riderPhone, passengerPhone, riderName, passenger, bookedForSelf, pickupCoords, destinationCoords } = req.body;
 
     const profile = await prisma.profile.findUnique({
@@ -341,6 +345,10 @@ router.put('/:id', requireAuth(), async (req: AuthenticatedRequest, res) => {
 // Cancel ride (passenger)
 router.post('/:id/cancel', requireAuth(), async (req: AuthenticatedRequest, res) => {
   try {
+    if (req.user!.role !== 'passenger') {
+      return res.status(403).json({ error: 'Only passenger accounts can cancel rides' });
+    }
+
     const ride = await prisma.ride.findUnique({
       where: { id: String(req.params.id) },
     });
