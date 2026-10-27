@@ -6,6 +6,21 @@ import { getCommissionPercent } from '../utils/config';
 
 const router = Router();
 
+// Additive compatibility migration for deployments that previously used db push
+// rather than a checked-in migration history. This only adds a nullable field.
+let checkoutSchemaReady: Promise<void> | null = null;
+async function ensureCheckoutSchema() {
+  if (!checkoutSchemaReady) {
+    checkoutSchemaReady = prisma.$executeRawUnsafe(
+      'ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "authorizationUrl" TEXT'
+    ).then(() => undefined).catch((error) => {
+      checkoutSchemaReady = null;
+      throw error;
+    });
+  }
+  await checkoutSchemaReady;
+}
+
 type PaystackResponse = {
   status?: boolean;
   message?: string;
@@ -239,71 +254,97 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
       return res.status(400).json({ error: 'Ride fare is invalid' });
     }
 
-    const reference = 'TRIDASH-' + ride.id.replace(/[^A-Za-z0-9.-]/g, '-') + '-' + Date.now();
-    // Paystack does not append the reference to the callback URL, so it has to
-    // be carried explicitly. Without it the frontend has nothing to verify.
-    const callbackUrl =
-      getFrontendOrigin() +
-      '/trips/' + encodeURIComponent(ride.id) +
-      '?payment=paystack&reference=' + encodeURIComponent(reference);
+    // The URL is stored with the pending payment, so retries reopen the same
+    // checkout instead of charging the passenger through a second reference.
+    await ensureCheckoutSchema();
 
-    // Split payments: if the completed ride has a driver with a verified
-    // Paystack subaccount, route the driver's share directly to their bank
-    // and keep the platform commission. Otherwise the full fare settles to
-    // the platform account.
-    const driver = ride.driverId
-      ? await prisma.driver.findUnique({ where: { id: ride.driverId } })
-      : null;
+    // Keep same-ride initialization serialized across app instances. The lock
+    // is held until Paystack has returned a URL and the pending row is saved.
+    const session = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${ride.id}))`;
 
-    const splitBody: Record<string, unknown> = {
-      email: req.user!.email,
-      amount: String(amountNaira * 100), // Convert to kobo
-      currency: 'NGN',
-      reference,
-      callback_url: callbackUrl,
-      channels: ['card', 'bank', 'ussd', 'qr', 'bank_transfer'],
-      metadata: {
-        rideId: ride.id,
-        userId: req.user!.userId,
-      },
-    };
+      const existing = await tx.payment.findFirst({
+        where: { rideId: ride.id, userId: req.user!.userId, status: 'Pending' },
+        orderBy: { createdAt: 'desc' },
+      });
 
-    if (driver?.payoutSubaccountCode) {
-      // Percentage split: the driver's subaccount receives
-      // (100 - commission)% and the platform account keeps the commission.
-      const commissionPercent = getCommissionPercent();
-      splitBody.split = {
-        type: 'percentage',
-        bearer_type: 'all',
-        subaccounts: [
-          {
+      if (existing) {
+        if (existing.authorizationUrl) {
+          return { authorizationUrl: existing.authorizationUrl, reference: existing.reference, payment: existing, reused: true };
+        }
+        // Older pending records predate checkout URL persistence. Do not silently
+        // create a second chargeable reference while the old one may still exist.
+        return { authorizationUrl: '', reference: existing.reference, payment: existing, reused: true };
+      }
+
+      const reference = 'TRIDASH-' + ride.id.replace(/[^A-Za-z0-9.-]/g, '-') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const callbackUrl =
+        getFrontendOrigin() +
+        '/trips/' + encodeURIComponent(ride.id) +
+        '?payment=paystack&reference=' + encodeURIComponent(reference);
+
+      // Split payments: the driver's verified Paystack subaccount receives
+      // their share while the platform retains its configured commission.
+      const driver = ride.driverId
+        ? await tx.driver.findUnique({ where: { id: ride.driverId } })
+        : null;
+
+      const splitBody: Record<string, unknown> = {
+        email: req.user!.email,
+        amount: String(amountNaira * 100),
+        currency: 'NGN',
+        reference,
+        callback_url: callbackUrl,
+        channels: ['card', 'bank', 'ussd', 'qr', 'bank_transfer'],
+        metadata: { rideId: ride.id, userId: req.user!.userId },
+      };
+
+      if (driver?.payoutSubaccountCode) {
+        const commissionPercent = getCommissionPercent();
+        splitBody.split = {
+          type: 'percentage',
+          bearer_type: 'all',
+          subaccounts: [{
             subaccount: driver.payoutSubaccountCode,
             share: 100 - commissionPercent,
-          },
-        ],
-      };
+          }],
+        };
+      }
+
+      const result = await paystackRequest('/transaction/initialize', {
+        method: 'POST',
+        body: JSON.stringify(splitBody),
+      });
+      const authorizationUrl = String(result.data?.authorization_url || '');
+      if (!authorizationUrl) throw new Error('Paystack did not return a checkout URL');
+
+      const payment = await tx.payment.create({
+        data: {
+          rideId: ride.id,
+          userId: req.user!.userId,
+          amount: amountNaira,
+          method: 'Paystack',
+          status: 'Pending',
+          reference,
+          authorizationUrl,
+        },
+      });
+
+      return { authorizationUrl, reference, payment, reused: false };
+    });
+
+    if (!session.authorizationUrl) {
+      return res.status(409).json({
+        error: 'A previous payment attempt is still pending and cannot be resumed automatically. Please contact support before trying another payment.',
+        reference: session.reference,
+      });
     }
 
-    const result = await paystackRequest('/transaction/initialize', {
-      method: 'POST',
-      body: JSON.stringify(splitBody),
-    });
-
-    const payment = await prisma.payment.create({
-      data: {
-        rideId: ride.id,
-        userId: req.user!.userId,
-        amount: amountNaira,
-        method: 'Paystack',
-        status: 'Pending',
-        reference,
-      },
-    });
-
-    res.json({
-      authorizationUrl: result.data?.authorization_url || '',
-      reference,
-      payment,
+    return res.json({
+      authorizationUrl: session.authorizationUrl,
+      reference: session.reference,
+      payment: session.payment,
+      reused: session.reused,
     });
   } catch (error: any) {
     console.error('Paystack initialization error:', error);
