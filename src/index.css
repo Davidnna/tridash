@@ -434,3 +434,32 @@ input:focus,textarea:focus,select:focus{outline-color:rgba(30,142,90,.18)}
 @keyframes scroll-to-top-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:700px){.scroll-to-top{right:16px;bottom:calc(88px + env(safe-area-inset-bottom,0px));width:44px;height:44px}}
 @media(prefers-reduced-motion:reduce){.scroll-to-top{animation:none;transition:none;scroll-behavior:auto}}
+
+
+/* Accessibility and small-screen usability refinements */
+:root{scroll-padding-top:5.5rem}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{overflow-wrap:break-word}
+img,video,canvas,iframe{max-width:100%}
+.app-shell button,.public-site button,.not-found-page button{min-height:44px}
+.app-shell input:not([type="checkbox"]):not([type="radio"]),.app-shell select,.app-shell textarea,.public-site input,.public-site select,.public-site textarea{max-width:100%;font-size:16px}
+.app-shell input:not([type="checkbox"]):not([type="radio"]),.app-shell select,.public-site input,.public-site select{min-height:44px}
+.app-shell textarea,.public-site textarea{min-height:88px}
+:where(button,a,input,select,textarea,[role="button"],[tabindex]:not([tabindex="-1"])):focus-visible{outline:3px solid #176B43;outline-offset:3px}
+@media(max-width:700px){
+  .topbar{gap:8px}
+  .topbar-actions{min-width:0;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .role-menu{right:12px;width:min(255px,calc(100vw - 24px))}
+  .notification-popover{max-width:calc(100vw - 24px)}
+  .mobile-frame,.admin-content{overflow-wrap:anywhere}
+  .map-card,.real-map-canvas{max-width:100%}
+}
+@media(max-width:380px){
+  .feature-grid{grid-template-columns:minmax(0,1fr)}
+  .topbar-actions .icon-button{width:44px;height:44px}
+  .screen-head{gap:8px}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto!important}
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
