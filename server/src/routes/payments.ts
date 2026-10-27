@@ -363,21 +363,19 @@ router.get('/paystack/verify', requireAuth(), async (req: AuthenticatedRequest, 
   }
 });
 
-// Paystack webhook: authoritative payment confirmation. Marks the payment and
-// ride paid even if the passenger closes the tab before the redirect. The raw
-// body is required for HMAC signature verification, so this route must be
-// mounted with express.raw (see server/src/index.ts).
-router.post('/paystack/webhook', (req, res) => {
+// Paystack webhook: authoritative payment confirmation. Process the event before
+// acknowledging it so transient database failures receive a retry from Paystack.
+// The raw body is required for HMAC signature verification (see server/src/index.ts).
+router.post('/paystack/webhook', async (req, res) => {
   const secret = process.env.PAYSTACK_SECRET_KEY;
-
   if (!secret) {
     return res.status(503).json({ error: 'Paystack is not configured' });
   }
 
   const signature = req.headers['x-paystack-signature'];
   const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(String(req.body || ''));
-
   const expected = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+
   if (!signature || typeof signature !== 'string' || !timingSafeEqualHex(expected, signature)) {
     return res.status(401).json({ error: 'Invalid webhook signature' });
   }
@@ -389,24 +387,33 @@ router.post('/paystack/webhook', (req, res) => {
     return res.status(400).json({ error: 'Invalid webhook payload' });
   }
 
-  // Acknowledge quickly; process asynchronously so Paystack does not time out.
-  res.json({ received: true });
-
-  if (event?.event !== 'charge.success') return;
+  // Other valid Paystack events are acknowledged but do not change ride state.
+  if (event?.event !== 'charge.success') {
+    return res.json({ received: true });
+  }
 
   const transaction = event.data || {};
-  const reference = String(transaction.reference || '');
+  const reference = String(transaction.reference || '').trim();
+  if (!reference || String(transaction?.reference || '') !== reference || transaction?.status !== 'success') {
+    return res.status(400).json({ error: 'Invalid successful transaction payload' });
+  }
 
-  (async () => {
-    try {
-      if (!reference || String(transaction?.reference || '') !== reference || transaction?.status !== 'success') return;
-      const payment = await prisma.payment.findUnique({ where: { reference } });
-      if (!payment) return;
-      await settleVerifiedPayment(payment.id, reference, transaction);
-    } catch (error) {
-      console.error('Paystack webhook processing error:', error);
+  try {
+    const payment = await prisma.payment.findUnique({ where: { reference } });
+    // The payment row may not have committed yet if the webhook arrives immediately
+    // after initialization. Return a retryable error instead of silently losing it.
+    if (!payment) {
+      return res.status(503).json({ error: 'Payment record is not available yet; retry this webhook' });
     }
-  })();
+
+    await settleVerifiedPayment(payment.id, reference, transaction);
+    return res.json({ received: true });
+  } catch (error: any) {
+    console.error('Paystack webhook processing error:', error);
+    const message = error?.message || 'Payment webhook processing failed';
+    const permanentMismatch = /does not match|not linked to a valid passenger ride|already been paid for with another reference|no longer pending|payment record and ride payment state do not match/i.test(message);
+    return res.status(permanentMismatch ? 400 : 500).json({ error: message });
+  }
 });
 
 function timingSafeEqualHex(expected: string, provided: string): boolean {
