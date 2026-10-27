@@ -212,6 +212,7 @@ model Payment {
   method        String   @default("Paystack")
   status        String   @default("Pending") // 'Pending', 'Paid'
   reference     String   @unique
+  authorizationUrl String?  @db.Text
   transactionId String?
   channel       String?
   paidAt        DateTime?
