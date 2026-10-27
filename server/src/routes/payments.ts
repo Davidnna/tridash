@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import prisma from '../utils/database';
 import { requireAuth, requireDriver, AuthenticatedRequest } from '../middleware/auth';
 import { getCommissionPercent } from '../utils/config';
-import { ensurePaymentCheckoutSchema } from '../utils/payment-schema';
+import { ensureRuntimeSchema } from '../utils/payment-schema';
 
 const router = Router();
 
@@ -244,7 +244,7 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
     // Persist a reservation before calling Paystack. If the provider call or
     // database update fails, a retry must not create a second reference that
     // could charge the same ride independently.
-    await ensurePaymentCheckoutSchema();
+    await ensureRuntimeSchema();
 
     const session = await prisma.$transaction(async (tx) => {
       // Serialize initialization across backend instances for the same ride.
