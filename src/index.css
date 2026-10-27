@@ -342,3 +342,86 @@ button,.workspace-trigger,a{transition-duration:.12s}
 .not-found-footer{width:min(1180px,100%);margin:0 auto;padding:18px 0 22px;border-top:1px solid #e4eee7;display:flex;justify-content:space-between;gap:16px;color:#6b7b70;font-size:12px}
 @media(max-width:520px){.not-found-topbar{min-height:70px}.not-found-help{font-size:12px}.not-found-art{height:218px}.not-found-orbit-a{width:190px;height:190px}.not-found-orbit-b{width:140px;height:140px}.not-found-map-pin{width:92px;height:92px;border-radius:28px}.not-found-map-pin svg{width:46px;height:46px}.not-found-route-dot-a{left:calc(50% - 88px);top:48px}.not-found-route-dot-b{right:calc(50% - 94px);bottom:40px}.not-found-route-line{width:130px;height:70px;right:calc(50% - 88px);top:66px}.not-found-error-code{right:calc(50% - 145px);top:24px}.not-found-content{padding:28px 0 42px}.not-found-content h1{font-size:clamp(33px,9vw,43px)}.not-found-description{font-size:15px}.not-found-actions{width:100%;display:grid;grid-template-columns:1fr}.not-found-actions .public-button{width:100%;box-sizing:border-box}.not-found-suggestions{gap:10px 14px}.not-found-footer{flex-direction:column;gap:4px}}
 @media(prefers-reduced-motion:reduce){.not-found-page *{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+
+/* Tridash palette balance: preserve the agreed colours, let light surfaces lead. */
+:root{color:#29332D;background:#F5F5F2}
+body{background:#F5F5F2;color:#29332D}
+.app-shell{background:#F5F5F2}
+.topbar{background:rgba(245,245,242,.96);border-bottom-color:#B9C9BA}
+.brand{color:#29332D}
+.brand-mark{background:#B9C9BA;color:#29332D}
+.primary-button{background:#1E8E5A;color:#fff}
+.primary-button:hover{background:#176b43}
+.secondary-button{background:#B9C9BA;color:#29332D}
+.secondary-button:hover{background:#D7C9A8}
+.icon-button,.back-button{color:#29332D}
+.role-chip,.count-pill,.ride-status{background:#B9C9BA;color:#29332D}
+.role-menu{border-color:#B9C9BA;box-shadow:0 18px 45px rgba(41,51,45,.10)}
+.role-menu button:hover,.role-menu button.active{background:#F5F5F2}
+.workspace-trigger{border-color:#B9C9BA;color:#29332D}
+.ride-card,.empty-card,.feature-card,.status-card,.driver-card,.form-card,.history-item,.request-card,.verification-card,.payment-box,.settings-row,.passenger-card,.trip-details{border-color:#B9C9BA;box-shadow:0 10px 28px rgba(41,51,45,.035)}
+.ride-card-heading,.hero-copy h1,.screen-head h2,.empty-card h2,.fare-row strong,.driver-info strong,.passenger-card strong,.trip-details strong,.history-item strong,.feature-card strong{color:#29332D}
+.ride-card-meta,.card-footer,.verified{color:#1E8E5A}
+.dot{border-color:#1E8E5A}
+.empty-icon,.feature-icon,.status-icon,.verified-badge,.history-icon{background:#B9C9BA;color:#29332D}
+.bottom-nav{background:rgba(245,245,242,.97);border-color:#B9C9BA}
+.bottom-nav .nav-active{color:#29332D}
+.bottom-nav .ride-action{background:#1E8E5A;box-shadow:0 9px 20px rgba(30,142,90,.18)}
+.driver-bottom-nav button.nav-active{background:#B9C9BA}
+.map-card,.real-map-canvas{background:#F5F5F2}
+.form-card input,.form-card textarea,.admin-panel textarea{border-color:#B9C9BA;color:#29332D;background:#F5F5F2}
+.trip-details,.safety-row button{border-color:#B9C9BA}
+.safety-row button{color:#29332D}
+.history-icon{color:#29332D}
+.online-card{background:#B9C9BA;color:#29332D}
+.online-card button{background:rgba(41,51,45,.08);color:#29332D}
+.status-dot{background:#1E8E5A;box-shadow:0 0 0 4px rgba(30,142,90,.13)}
+.avatar{background:#29332D;color:#F5F5F2}
+input:focus,textarea:focus,select:focus{outline-color:rgba(30,142,90,.18)}
+.secondary-button:focus-visible,.primary-button:focus-visible,.icon-button:focus-visible,.back-button:focus-visible,.workspace-trigger:focus-visible{outline-color:rgba(30,142,90,.35)}
+
+/* Public pages use the same palette, with ivory and sage doing most of the work. */
+.public-site{--public-ink:#29332D;--public-muted:#5C6B60;--public-green:#1E8E5A;--public-green-deep:#29332D;--public-mint:#B9C9BA;--public-border:#B9C9BA;background:#F5F5F2;color:#29332D}
+.public-header{background:rgba(245,245,242,.96);border-bottom-color:#B9C9BA}
+.public-brand-mark{background:#B9C9BA;color:#29332D}
+.public-button{background:#1E8E5A;border-color:#1E8E5A;color:#fff}
+.public-button:hover{background:#176b43;border-color:#176b43}
+.public-button-outline{background:#F5F5F2;color:#29332D;border-color:#B9C9BA}
+.public-button-outline:hover{background:#B9C9BA;color:#29332D;border-color:#B9C9BA}
+.public-kicker-dot{background:#1E8E5A;box-shadow:0 0 0 5px rgba(30,142,90,.12)}
+.public-hero{background:#F5F5F2}
+.public-hero h1,.public-page-hero h1,.public-section-heading h2,.public-driver-cta h2{color:#29332D}
+.public-hero h1 span{color:#1E8E5A}
+.public-hero-visual{background:#DCE9DF}
+.public-ride-card,.public-feature-card,.public-faq-list details,.public-steps-grid article,.public-contact-options a{background:#F5F5F2;border-color:#B9C9BA}
+.public-ride-card{box-shadow:0 22px 60px rgba(41,51,45,.08)}
+.public-value-section{background:#B9C9BA;border-color:#B9C9BA}
+.public-feature-icon,.public-steps-grid article>span{background:#B9C9BA;color:#29332D}
+.public-driver-cta{background:#B9C9BA;color:#29332D}
+.public-driver-cta .public-kicker{color:#29332D}
+.public-driver-cta p{color:#374740}
+.public-button-light{background:#F5F5F2;color:#29332D!important;border-color:#F5F5F2}
+.public-button-light:hover{background:#D7C9A8;border-color:#D7C9A8}
+.public-page-hero{background:linear-gradient(135deg,#F5F5F2 0%,#F5F5F2 55%,#B9C9BA 100%);border-bottom-color:#B9C9BA}
+.public-notice{border-color:#B9C9BA;background:#F5F5F2}
+.public-footer{background:#B9C9BA;color:#29332D}
+.public-footer-brand p,.public-footer-links a,.public-footer-bottom{color:#374740}
+.public-footer .public-brand{color:#29332D}
+.public-footer .public-brand-mark{background:#1E8E5A;color:#fff}
+.public-footer-links strong{color:#29332D}
+.public-footer-bottom{border-top-color:rgba(41,51,45,.18)}
+.public-footer-links a:hover{color:#1E8E5A}
+.public-content-section p,.public-content-section li{color:#374740}
+
+/* Keep the branded 404 page consistent with the same restrained colour proportions. */
+.not-found-page{--nf-ink:#29332D;--nf-muted:#5C6B60;--nf-green:#1E8E5A;background:radial-gradient(ellipse at 50% 42%,#B9C9BA 0,#F5F5F2 66%);color:#29332D}
+.not-found-topbar,.not-found-footer{border-color:#B9C9BA}
+.not-found-map-pin{color:#1E8E5A;border-color:#B9C9BA;box-shadow:0 22px 55px rgba(41,51,45,.08)}
+.not-found-art:before{background:linear-gradient(145deg,#B9C9BA,#F5F5F2 72%)}
+.not-found-orbit{border-color:rgba(41,51,45,.18)}
+.not-found-route-dot{border-color:#1E8E5A;box-shadow:0 0 0 6px rgba(185,201,186,.55)}
+.not-found-route-dot-b{border-color:#29332D}
+.not-found-route-line{border-top-color:#B9C9BA;border-right-color:#B9C9BA}
+.not-found-error-code{border-color:#B9C9BA;color:#1E8E5A}
+.not-found-footer{color:#5C6B60}
