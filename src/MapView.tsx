@@ -81,6 +81,8 @@ export default function MapView({ pickup, destination, userLocation, driverLocat
                 element.className = 'tridash-map-marker ' + kind;
                 element.textContent = kind === 'driver' ? '🛺' : '';
                 element.title = label;
+                element.setAttribute('role', 'img');
+                element.setAttribute('aria-label', label);
                 const marker = new mapboxgl.Marker({ element })
                     .setLngLat([point.lng, point.lat])
                     .setPopup(new mapboxgl.Popup({ offset: 18, closeButton: false }).setText(label))
@@ -145,9 +147,9 @@ export default function MapView({ pickup, destination, userLocation, driverLocat
     }, [pickup, destination, routeData]);
 
     return (
-        <div className="map-card real-map">
+        <div className="map-card real-map" role="region" aria-label="Interactive map showing pickup, destination, and driver location">
             <div ref={node} className="real-map-canvas" />
-            {mapError && <div className="map-error-overlay">{mapError}</div>}
+            {mapError && <div className="map-error-overlay" role="alert">{mapError}</div>}
         </div>
     );
 }
