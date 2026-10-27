@@ -551,7 +551,22 @@ function App() {
     setRides(current => current.map(r => r.id === updated.id ? updated : r));
     setActiveRide(updated);
     setSelectedRide(updated);
-    try { const res = await api.put('/api/rides/' + updated.id, { status }); if (res.data?.ride) { setRides(current => current.map(r => r.id === updated.id ? res.data.ride : r)); setActiveRide(res.data.ride); } } catch { notify('We could not save this trip update. Please try again.'); return; }
+    try {
+      const res = await api.put('/api/rides/' + encodeURIComponent(updated.id), { status });
+      if (res.data?.ride) {
+        setRides(current => current.map(r => r.id === updated.id ? res.data.ride : r));
+        setActiveRide(res.data.ride);
+        setSelectedRide(res.data.ride);
+      }
+    } catch {
+      // Roll back optimistic UI state when the server rejects a stale or invalid
+      // transition, so the screen never claims a trip advanced when it did not.
+      setRides(current => current.map(r => r.id === ride.id ? ride : r));
+      setActiveRide(ride);
+      setSelectedRide(ride);
+      notify('We could not save this trip update. Your trip status has been restored. Please refresh and try again.');
+      return;
+    }
     notify(status === 'Completed' ? 'Trip completed' : 'Trip status updated');
     if (status === 'Completed') setShowRating(true);
   };
