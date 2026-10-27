@@ -104,7 +104,7 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
     return (
         <div className="mobile-frame booking-page">
             <section className="screen-head">
-                <button className="back-button" onClick={() => setTab('home')}>←</button>
+                <button type="button" className="back-button" aria-label="Back to home" onClick={() => setTab('home')}>←</button>
                 <div><div className="eyebrow">NEW RIDE</div><h2>Request a ride</h2></div>
             </section>
             <div className="booking-intro">
