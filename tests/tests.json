@@ -280,5 +280,46 @@
       "Repeat the restricted requests as an administrator"
     ],
     "expected": "The server returns 403 for passenger-only actions from driver and admin accounts, and no ride, payment, cancellation, or rating record is changed."
+  },
+  {
+    "name": "Repeated payment initialization resumes the same checkout",
+    "viewport": "desktop",
+    "covers": [
+      "persisted authorization URL",
+      "same ride advisory lock",
+      "no duplicate pending reference",
+      "checkout recovery after navigation or refresh",
+      "legacy pending payment safety"
+    ],
+    "description": "Verifies repeated initialize requests for one completed unpaid ride reuse the existing Paystack authorization URL and do not create another chargeable payment.",
+    "steps": [
+      "Sign in as the passenger for a completed unpaid ride",
+      "Initialize payment and record the returned reference and authorization URL",
+      "Call initialize again before paying",
+      "Refresh the trip page and start payment again",
+      "Run two initialize requests concurrently for the same ride",
+      "Repeat with a legacy pending payment that has no stored authorization URL"
+    ],
+    "expected": "Normal retries return the same reference and authorization URL; concurrent requests are serialized; only one pending payment is created by this flow; a legacy pending payment is not silently replaced by a second reference."
+  },
+  {
+    "name": "Tridash refreshed palette and motion remain accessible",
+    "viewport": "mobile",
+    "covers": [
+      "charcoal and yellow identity",
+      "warm off-white surfaces",
+      "soft green accents",
+      "gradient CTA contrast",
+      "visible keyboard focus",
+      "reduced-motion preference"
+    ],
+    "description": "Checks the refreshed colour system and subtle transitions across the main passenger, driver and admin surfaces.",
+    "steps": [
+      "Open passenger, driver and admin workspaces at 320px, 768px and desktop widths",
+      "Navigate all primary actions with the keyboard",
+      "Enable reduced-motion in the operating system and reload",
+      "Inspect the primary button, selected navigation, status labels and form fields"
+    ],
+    "expected": "The new charcoal/yellow/ivory/soft-green palette is consistent; key actions remain readable; keyboard focus is visible; layouts do not overflow horizontally; and animations are minimized for reduced-motion users."
   }
 ]
