@@ -5,6 +5,7 @@ import App from './App';
 import './index.css';
 import './theme-refresh.css';
 import './public-site-refresh.css';
+import './public-home-layout-fix.css';
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>
