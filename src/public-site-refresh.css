@@ -110,3 +110,32 @@
 @media(prefers-reduced-motion:reduce){
   .public-site *, .public-site *::before, .public-site *::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+
+/* A final public-facing decision point, separated from the driver signup CTA. */
+.public-site .public-help-cta{
+  width:min(1080px,calc(100% - 56px));
+  margin:0 auto clamp(58px,7vw,88px);
+  padding:clamp(26px,4vw,42px);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:28px;
+  border:1px solid #D4DED3;
+  border-radius:24px;
+  background:linear-gradient(125deg,#FFFFFF 0%,#F5F5F2 58%,#E4EEE4 100%);
+  box-shadow:0 16px 38px rgba(14,42,28,.07);
+}
+.public-site .public-help-copy{max-width:620px}
+.public-site .public-help-copy h2{margin:10px 0 10px;color:#0E2A1C;font-size:clamp(25px,3vw,36px);line-height:1.12;letter-spacing:-.045em}
+.public-site .public-help-copy p{margin:0;color:#53675A;line-height:1.75;max-width:590px}
+.public-site .public-help-actions{display:flex;flex-direction:column;align-items:flex-start;gap:13px;flex:none}
+.public-site .public-help-text-link{display:inline-flex;align-items:center;gap:5px;color:#0E2A1C;font-weight:700;text-decoration:none}
+.public-site .public-help-text-link:hover{color:#1E8E5A}
+@media(max-width:700px){
+  .public-site .public-help-cta{width:calc(100% - 32px);margin-bottom:54px;padding:25px 21px;align-items:stretch;flex-direction:column;gap:22px}
+  .public-site .public-help-actions{align-items:stretch}
+  .public-site .public-help-actions .public-button{width:100%;box-sizing:border-box}
+}
+@media(max-width:380px){
+  .public-site .public-help-cta{width:calc(100% - 24px);padding:21px 17px}
+}
