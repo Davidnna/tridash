@@ -71,3 +71,38 @@ a{text-underline-offset:3px}
 .feature-card:hover,.ride-card:hover,.status-card:hover{transform:translateY(-2px);box-shadow:0 16px 34px rgba(14,42,28,.11)}
 @media(max-width:360px){.mobile-frame{padding-left:12px;padding-right:12px}.topbar{padding-left:12px;padding-right:12px}.role-menu{right:8px;width:min(255px,calc(100vw - 16px))}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto!important}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+
+
+/* Admin header correction: use a light, calm surface rather than the shared dark gradient. */
+.admin-head{
+  position:relative;
+  isolation:isolate;
+  overflow:hidden;
+  background:linear-gradient(112deg,#F5F5F2 0%,#FFFFFF 52%,#E8EDE5 100%);
+  color:#29332D;
+  border:1px solid #D8E0D7;
+  border-radius:20px;
+  padding:20px 22px;
+  box-shadow:0 10px 26px rgba(14,42,28,.055);
+}
+.admin-head:before{
+  content:"";
+  position:absolute;
+  z-index:-1;
+  inset:0 auto 0 0;
+  width:4px;
+  background:linear-gradient(180deg,#FDB913 0%,#1E8E5A 100%);
+}
+.admin-head h1{color:#29332D}
+.admin-head .eyebrow{color:#53645A}
+.admin-head .secondary-button{
+  background:#FFFFFF;
+  color:#29332D;
+  border:1px solid #B9C9BA;
+  box-shadow:none;
+}
+.admin-head .secondary-button:hover{background:#E8EDE5}
+@media(max-width:520px){
+  .admin-head{padding:17px 15px;align-items:center}
+  .admin-head h1{font-size:25px}
+}
