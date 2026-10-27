@@ -160,8 +160,14 @@ router.post('/:id/accept', requireAuth(), async (req: AuthenticatedRequest, res)
       where: { userId: ride.passengerId },
     });
 
-    const updatedRide = await prisma.ride.update({
-      where: { id: String(req.params.id) },
+    // Claim the request atomically. Only one driver can transition a requested,
+    // unassigned ride to Accepted, even when multiple drivers race to accept it.
+    const claim = await prisma.ride.updateMany({
+      where: {
+        id: String(req.params.id),
+        status: 'Requested',
+        driverId: null,
+      },
       data: {
         driverId: user.id,
         driver: driver.name,
@@ -176,7 +182,26 @@ router.post('/:id/accept', requireAuth(), async (req: AuthenticatedRequest, res)
       },
     });
 
-    // Notify subscribers
+    if (claim.count !== 1) {
+      const latestRide = await prisma.ride.findUnique({ where: { id: String(req.params.id) } });
+      return res.status(409).json({
+        error: latestRide?.status === 'Cancelled'
+          ? 'Passenger cancelled this ride'
+          : latestRide?.driverId
+          ? 'Ride has already been accepted by another driver'
+          : 'Ride is no longer available',
+      });
+    }
+
+    const updatedRide = await prisma.ride.findUnique({
+      where: { id: String(req.params.id) },
+    });
+
+    if (!updatedRide) {
+      return res.status(404).json({ error: 'Ride not found after acceptance' });
+    }
+
+    // Notify subscribers only after the atomic claim succeeds.
     await notifySubscribers('rides', updatedRide.id, updatedRide);
 
     res.json({ ride: updatedRide });
@@ -252,40 +277,58 @@ router.put('/:id', requireAuth(), async (req: AuthenticatedRequest, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const isPassenger = ride.passengerId === user.id;
-    const isDriver = ride.driverId === user.id;
+    const isDriver = user.role === 'driver';
     const isAdmin = user.role === 'admin';
 
-    if (!isPassenger && !isDriver && !isAdmin) {
-      return res.status(403).json({ error: 'Forbidden' });
+    // Passengers must use the dedicated cancellation endpoint; they may never
+    // mutate ride status, assignment, fare, payment state, or contact records.
+    if (!isDriver && !isAdmin) {
+      return res.status(403).json({ error: 'Only the assigned driver or an administrator can update this ride' });
     }
 
-    let updateData = req.body;
-
-    // Non-admin drivers can only update status
-    if (user.role === 'driver' && !isAdmin) {
-      if (ride.driverId !== user.id) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-
-      const requestedStatus = String(req.body.status || ride.status);
-      const validTransition =
-        (ride.status === 'Accepted' && requestedStatus === 'In Progress') ||
-        (ride.status === 'In Progress' && requestedStatus === 'Completed');
-
-      if (!validTransition) {
-        return res.status(409).json({ error: 'Invalid ride status transition' });
-      }
-
-      updateData = { status: requestedStatus };
+    if (isDriver && ride.driverId !== user.id) {
+      return res.status(403).json({ error: 'Only the assigned driver can update this ride' });
     }
 
-    const updatedRide = await prisma.ride.update({
-      where: { id: String(req.params.id) },
-      data: updateData,
+    const requestedStatus = String(req.body?.status || '');
+    const validDriverTransition =
+      (ride.status === 'Accepted' && requestedStatus === 'In Progress') ||
+      (ride.status === 'In Progress' && requestedStatus === 'Completed');
+    const validAdminTransition =
+      requestedStatus === 'Cancelled' &&
+      !['Completed', 'Cancelled'].includes(ride.status);
+
+    if ((isDriver && !validDriverTransition) || (isAdmin && !validAdminTransition)) {
+      return res.status(409).json({ error: 'Invalid ride status transition' });
+    }
+
+    // Ignore every client-supplied field except the validated status. The
+    // conditional update also prevents stale requests overwriting a newer state.
+    const updateResult = await prisma.ride.updateMany({
+      where: {
+        id: String(req.params.id),
+        status: ride.status,
+        ...(isDriver ? { driverId: user.id } : {}),
+      },
+      data: {
+        status: requestedStatus,
+        ...(requestedStatus === 'Cancelled' ? { cancelledAt: new Date() } : {}),
+      },
     });
 
-    // Notify subscribers
+    if (updateResult.count !== 1) {
+      return res.status(409).json({ error: 'This ride changed before your update could be saved. Refresh and try again.' });
+    }
+
+    const updatedRide = await prisma.ride.findUnique({
+      where: { id: String(req.params.id) },
+    });
+
+    if (!updatedRide) {
+      return res.status(404).json({ error: 'Ride not found' });
+    }
+
+    // Notify subscribers only after a successful state transition.
     await notifySubscribers('rides', updatedRide.id, updatedRide);
 
     res.json({ ride: updatedRide });
