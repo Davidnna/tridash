@@ -3,23 +3,10 @@ import crypto from 'crypto';
 import prisma from '../utils/database';
 import { requireAuth, requireDriver, AuthenticatedRequest } from '../middleware/auth';
 import { getCommissionPercent } from '../utils/config';
+import { ensurePaymentCheckoutSchema } from '../utils/payment-schema';
 
 const router = Router();
 
-// Additive compatibility migration for deployments that previously used db push
-// rather than a checked-in migration history. This only adds a nullable field.
-let checkoutSchemaReady: Promise<void> | null = null;
-async function ensureCheckoutSchema() {
-  if (!checkoutSchemaReady) {
-    checkoutSchemaReady = prisma.$executeRawUnsafe(
-      'ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "authorizationUrl" TEXT'
-    ).then(() => undefined).catch((error) => {
-      checkoutSchemaReady = null;
-      throw error;
-    });
-  }
-  await checkoutSchemaReady;
-}
 
 type PaystackResponse = {
   status?: boolean;
@@ -257,7 +244,7 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
     // Persist a reservation before calling Paystack. If the provider call or
     // database update fails, a retry must not create a second reference that
     // could charge the same ride independently.
-    await ensureCheckoutSchema();
+    await ensurePaymentCheckoutSchema();
 
     const session = await prisma.$transaction(async (tx) => {
       // Serialize initialization across backend instances for the same ride.
