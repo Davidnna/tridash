@@ -82,6 +82,87 @@ function getFrontendOrigin(): string {
   return process.env.FRONTEND_URL || 'http://localhost:5173';
 }
 
+ // Atomically apply a confirmed Paystack charge to one pending payment and its ride.
+ // The ride-level guard prevents two distinct references from paying the same ride.
+async function settleVerifiedPayment(paymentId: string, reference: string, transaction: any) {
+  return prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.findUnique({ where: { id: paymentId } });
+    if (!payment || payment.reference !== reference) {
+      throw new Error('Payment reference does not match the payment record');
+    }
+
+    const ride = await tx.ride.findUnique({ where: { id: payment.rideId } });
+    if (!ride || ride.passengerId !== payment.userId) {
+      throw new Error('Payment is not linked to a valid passenger ride');
+    }
+
+    if (
+      transaction?.status !== 'success' ||
+      String(transaction?.reference || '') !== reference ||
+      !transaction?.id ||
+      Number(transaction?.amount) !== payment.amount * 100 ||
+      payment.amount !== ride.amount ||
+      String(transaction?.currency || '').toUpperCase() !== 'NGN'
+    ) {
+      throw new Error('Paystack transaction details do not match the expected payment');
+    }
+
+    if (payment.status === 'Paid') {
+      if (ride.paymentStatus !== 'Paid' || ride.paymentReference !== reference) {
+        throw new Error('Payment record and ride payment state do not match');
+      }
+      return { paid: true, payment, ride };
+    }
+
+    if (payment.status !== 'Pending') {
+      throw new Error('This payment is no longer pending');
+    }
+    if (ride.paymentStatus === 'Paid') {
+      throw new Error('This ride has already been paid for with another reference');
+    }
+
+    const paymentClaim = await tx.payment.updateMany({
+      where: { id: payment.id, status: 'Pending' },
+      data: {
+        status: 'Paid',
+        paidAt: transaction.paid_at ? new Date(transaction.paid_at) : new Date(),
+        channel: transaction.channel || null,
+        transactionId: String(transaction.id),
+      },
+    });
+
+    if (paymentClaim.count !== 1) {
+      const latestPayment = await tx.payment.findUnique({ where: { id: payment.id } });
+      const latestRide = await tx.ride.findUnique({ where: { id: ride.id } });
+      if (latestPayment?.status === 'Paid' && latestRide?.paymentStatus === 'Paid' && latestRide.paymentReference === reference) {
+        return { paid: true, payment: latestPayment, ride: latestRide };
+      }
+      throw new Error('Payment changed while it was being verified');
+    }
+
+    const rideClaim = await tx.ride.updateMany({
+      where: { id: ride.id, paymentStatus: { not: 'Paid' } },
+      data: {
+        paymentMethod: 'Paystack',
+        paymentStatus: 'Paid',
+        paymentReference: reference,
+      },
+    });
+
+    if (rideClaim.count !== 1) {
+      throw new Error('This ride has already been paid for with another reference');
+    }
+
+    const [updatedPayment, updatedRide] = await Promise.all([
+      tx.payment.findUnique({ where: { id: payment.id } }),
+      tx.ride.findUnique({ where: { id: ride.id } }),
+    ]);
+    if (!updatedPayment || !updatedRide) throw new Error('Unable to confirm the saved payment state');
+    return { paid: true, payment: updatedPayment, ride: updatedRide };
+  });
+}
+
+
 // List Nigerian banks for driver payout onboarding. Cache the list to avoid
 // calling Paystack on every profile visit, but fall back to a stale successful
 // response if Paystack is temporarily unavailable.
@@ -229,78 +310,48 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
 // Verify Paystack payment
 router.get('/paystack/verify', requireAuth(), async (req: AuthenticatedRequest, res) => {
   try {
-    const reference = String(req.query.reference || '');
-
-    if (!reference) {
-      return res.status(400).json({ error: 'Payment reference is required' });
-    }
+    const reference = String(req.query.reference || '').trim();
+    if (!reference) return res.status(400).json({ error: 'Payment reference is required' });
 
     const payment = await prisma.payment.findFirst({
-      where: {
-        reference,
-        userId: req.user!.userId,
-      },
+      where: { reference, userId: req.user!.userId },
     });
+    if (!payment) return res.status(404).json({ error: 'Payment record not found' });
 
-    if (!payment) {
-      return res.status(404).json({ error: 'Payment record not found' });
-    }
-
-    if (payment.status === 'Paid') {
-      const paidRide = await prisma.ride.findUnique({ where: { id: payment.rideId } });
-      return res.json({ paid: true, payment, ride: paidRide });
-    }
-
-    const result = await paystackRequest('/transaction/verify/' + encodeURIComponent(reference));
-    const transaction = result.data || {};
-
-    const ride = await prisma.ride.findUnique({
-      where: { id: payment.rideId },
-    });
-
+    const ride = await prisma.ride.findUnique({ where: { id: payment.rideId } });
     if (!ride || ride.passengerId !== req.user!.userId) {
       return res.status(403).json({ error: 'Payment ride is not authorized' });
     }
 
-    const expectedKobo = Math.round(Number(ride.amount || 0) * 100);
+    if (payment.status === 'Paid') {
+      if (ride.paymentStatus === 'Paid' && ride.paymentReference === reference) {
+        return res.json({ paid: true, payment, ride });
+      }
+      return res.status(409).json({ error: 'Payment and ride records need reconciliation' });
+    }
+    if (ride.status !== 'Completed') {
+      return res.status(409).json({ error: 'Only completed rides can be paid for' });
+    }
 
+    const result = await paystackRequest('/transaction/verify/' + encodeURIComponent(reference));
+    const transaction = result.data || {};
     if (
       transaction?.status !== 'success' ||
-      Number(transaction?.amount) !== expectedKobo ||
+      String(transaction?.reference || '') !== reference ||
+      Number(transaction?.amount) !== payment.amount * 100 ||
+      payment.amount !== ride.amount ||
       String(transaction?.currency || '').toUpperCase() !== 'NGN'
     ) {
       return res.json({ paid: false, status: transaction?.status || 'unknown' });
     }
 
-    // Update payment
-    const updatedPayment = await prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        status: 'Paid',
-        paidAt: transaction.paid_at ? new Date(transaction.paid_at) : new Date(),
-        channel: transaction.channel || null,
-        transactionId: String(transaction.id),
-      },
-    });
-
-    // Update ride
-    const updatedRide = await prisma.ride.update({
-      where: { id: ride.id },
-      data: {
-        paymentMethod: 'Paystack',
-        paymentStatus: 'Paid',
-        paymentReference: reference,
-      },
-    });
-
-    res.json({
-      paid: true,
-      payment: updatedPayment,
-      ride: updatedRide,
-    });
+    const settled = await settleVerifiedPayment(payment.id, reference, transaction);
+    res.json(settled);
   } catch (error: any) {
     console.error('Paystack verification error:', error);
-    res.status(502).json({ error: error?.message || 'Unable to verify the online payment' });
+    const message = error?.message || 'Unable to verify the online payment';
+    const status = /already been paid|no longer pending|changed while|do not match|reconciliation/i.test(message) ? 409 : 502;
+    res.status(status).json({ error: message });
   }
 });
 
@@ -340,35 +391,10 @@ router.post('/paystack/webhook', (req, res) => {
 
   (async () => {
     try {
-      const payment = await prisma.payment.findFirst({ where: { reference } });
-      if (!payment || payment.status === 'Paid') return;
-
-      const ride = await prisma.ride.findUnique({ where: { id: payment.rideId } });
-      if (!ride) return;
-
-      const expectedKobo = Math.round(Number(ride.amount || 0) * 100);
-      if (Number(transaction.amount) !== expectedKobo || String(transaction.currency || '').toUpperCase() !== 'NGN') {
-        return;
-      }
-
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: 'Paid',
-          paidAt: transaction.paid_at ? new Date(transaction.paid_at) : new Date(),
-          channel: transaction.channel || null,
-          transactionId: String(transaction.id),
-        },
-      });
-
-      await prisma.ride.update({
-        where: { id: ride.id },
-        data: {
-          paymentMethod: 'Paystack',
-          paymentStatus: 'Paid',
-          paymentReference: reference,
-        },
-      });
+      if (!reference || String(transaction?.reference || '') !== reference || transaction?.status !== 'success') return;
+      const payment = await prisma.payment.findUnique({ where: { reference } });
+      if (!payment) return;
+      await settleVerifiedPayment(payment.id, reference, transaction);
     } catch (error) {
       console.error('Paystack webhook processing error:', error);
     }
