@@ -211,6 +211,10 @@ router.post('/banks/resolve', requireAuth(), requireDriver(), async (req: Authen
 // Initialize Paystack payment
 router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequest, res) => {
   try {
+    if (req.user!.role !== 'passenger') {
+      return res.status(403).json({ error: 'Only passenger accounts can pay for rides' });
+    }
+
     const { rideId } = req.body;
 
     const ride = await prisma.ride.findUnique({
@@ -310,6 +314,10 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
 // Verify Paystack payment
 router.get('/paystack/verify', requireAuth(), async (req: AuthenticatedRequest, res) => {
   try {
+    if (req.user!.role !== 'passenger') {
+      return res.status(403).json({ error: 'Only passenger accounts can verify ride payments' });
+    }
+
     const reference = String(req.query.reference || '').trim();
     if (!reference) return res.status(400).json({ error: 'Payment reference is required' });
 
