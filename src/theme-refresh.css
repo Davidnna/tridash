@@ -1,0 +1,53 @@
+/* Experimental Tridash refresh — intentionally isolated for one-commit rollback. */
+:root{
+  --tri-dark:#0E2A1C;
+  --tri-yellow:#FDB913;
+  --tri-offwhite:#F5F5F2;
+  --tri-light-green:#B9C9BA;
+  --tri-green:#1E8E5A;
+  --tri-gradient-brand:linear-gradient(125deg,#0E2A1C 0%,#1E8E5A 48%,#FDB913 100%);
+  --tri-gradient-soft:linear-gradient(135deg,#F5F5F2 0%,#F7F8F0 42%,#DCE8D8 100%);
+  --tri-gradient-card:linear-gradient(145deg,#FFFFFF 0%,#F5F5F2 55%,#E4EEE4 100%);
+  --tri-gradient-highlight:linear-gradient(115deg,#FDB913 0%,#F7D978 45%,#B9C9BA 100%);
+}
+html{scroll-behavior:smooth}
+body,.app-shell{background:var(--tri-gradient-soft);color:var(--tri-dark)}
+.topbar{background:rgba(245,245,242,.94);border-bottom-color:rgba(185,201,186,.8)}
+.brand,.hero-copy h1,.screen-head h2{color:var(--tri-dark)}
+.brand-mark{background:var(--tri-dark);color:var(--tri-yellow);box-shadow:0 5px 16px rgba(14,42,28,.18)}
+.primary-button{background:var(--tri-gradient-highlight);color:var(--tri-dark);box-shadow:0 7px 18px rgba(253,185,19,.2)}
+.primary-button:hover{background:var(--tri-gradient-brand);color:#fff;box-shadow:0 9px 24px rgba(14,42,28,.2);transform:translateY(-1px)}
+.secondary-button{background:linear-gradient(120deg,#E5EEE4 0%,#F5F5F2 100%);color:var(--tri-dark);border:1px solid rgba(185,201,186,.8)}
+.secondary-button:hover{background:var(--tri-gradient-highlight);color:var(--tri-dark)}
+.role-chip,.count-pill,.ride-status{background:linear-gradient(110deg,#E4EEE4,#F5F5F2);color:var(--tri-dark);border:1px solid rgba(185,201,186,.7)}
+.topbar,.bottom-nav,.role-menu,.workspace-trigger,.icon-button,.back-button{border-color:rgba(185,201,186,.78)}
+.bottom-nav{background:rgba(245,245,242,.96);box-shadow:0 -8px 28px rgba(14,42,28,.06)}
+.bottom-nav .nav-active,.driver-bottom-nav button.nav-active{color:var(--tri-dark);background:linear-gradient(125deg,#F5F5F2,#DCE8D8)}
+.bottom-nav .ride-action{background:var(--tri-gradient-highlight);color:var(--tri-dark);box-shadow:0 8px 20px rgba(253,185,19,.28)}
+.ride-card,.empty-card,.feature-card,.status-card,.driver-card,.form-card,.history-item,.request-card,.verification-card,.payment-box,.settings-row,.passenger-card,.admin-panel,.profile-card{background:var(--tri-gradient-card);border-color:rgba(185,201,186,.78);box-shadow:0 12px 30px rgba(14,42,28,.065)}
+.ride-card{background:linear-gradient(145deg,#FFFFFF 0%,#F5F5F2 52%,#E1EBDD 100%)}
+.feature-card:nth-child(3n+1){background:linear-gradient(140deg,#FFFFFF 0%,#F5F5F2 55%,#E2EBDD 100%)}
+.feature-card:nth-child(3n+2){background:linear-gradient(140deg,#FFFFFF 0%,#FBF4D9 100%)}
+.feature-card:nth-child(3n){background:linear-gradient(140deg,#F5F5F2 0%,#E0EBDD 100%)}
+.empty-icon,.feature-icon,.status-icon,.verified-badge{background:var(--tri-gradient-highlight);color:var(--tri-dark)}
+.dot{border-color:var(--tri-green)}
+.destination-dot,.tridash-map-marker.destination{border-color:#fff;background:var(--tri-yellow)}
+.online-card,.safety-hero,.admin-head,.panel-head{background:var(--tri-gradient-soft);border-color:rgba(185,201,186,.8)}
+input:focus,textarea:focus,select:focus,.secondary-button:focus-visible,.primary-button:focus-visible,.icon-button:focus-visible,.back-button:focus-visible,.workspace-trigger:focus-visible{outline:3px solid var(--tri-yellow);outline-offset:3px}
+a{ text-underline-offset:3px }
+@keyframes tri-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes tri-gradient-flow{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+.page{animation:tri-enter .32s ease-out both}
+.primary-button,.bottom-nav .ride-action,.brand-mark{background-size:180% 180%;transition:transform .18s ease,box-shadow .18s ease,background-position .4s ease}
+.primary-button:hover,.bottom-nav .ride-action:hover{background-position:100% 50%}
+.feature-card,.ride-card,.status-card{transition:transform .2s ease,box-shadow .2s ease}
+.feature-card:hover,.ride-card:hover,.status-card:hover{transform:translateY(-2px);box-shadow:0 16px 34px rgba(14,42,28,.1)}
+@media(max-width:360px){
+  .mobile-frame{padding-left:12px;padding-right:12px}
+  .topbar{padding-left:12px;padding-right:12px}
+  .role-menu{right:8px;width:min(255px,calc(100vw - 16px))}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto!important}
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
