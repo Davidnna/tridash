@@ -634,7 +634,7 @@ function App() {
       window.location.assign(authorizationUrl);
     } catch (error: any) {
       setPaymentBusy(false);
-      notify(error?.message || 'Online payment could not be started.');
+      notify(error?.response?.data?.error || error?.message || 'Online payment could not be started.');
     }
   };
 
