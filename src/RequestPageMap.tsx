@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, Navigation, Pencil, ShieldCheck } from 'lucide-react';
 import { api } from './api/client';
 import MapView, { reverseGeocode, searchPlace, type GeoPoint, type RouteData } from './MapView';
@@ -15,6 +15,50 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
     const [gpsError, setGpsError] = useState('');
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const confirmDialogRef = useRef<HTMLDivElement | null>(null);
+    const confirmRequestButtonRef = useRef<HTMLButtonElement | null>(null);
+    const submittingRef = useRef(submitting);
+
+    useEffect(() => {
+        submittingRef.current = submitting;
+    }, [submitting]);
+
+    useEffect(() => {
+        if (!confirmOpen) return;
+        const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        confirmRequestButtonRef.current?.focus();
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && !submittingRef.current) {
+                event.preventDefault();
+                setConfirmOpen(false);
+                return;
+            }
+            if (event.key !== 'Tab' || !confirmDialogRef.current) return;
+            const focusable = Array.from(confirmDialogRef.current.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            ));
+            if (!focusable.length) {
+                event.preventDefault();
+                return;
+            }
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && (document.activeElement === first || !confirmDialogRef.current.contains(document.activeElement))) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && (document.activeElement === last || !confirmDialogRef.current.contains(document.activeElement))) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            previouslyFocused?.focus();
+        };
+    }, [confirmOpen]);
     const [editingPhone, setEditingPhone] = useState(false);
     const [ridePhone, setRidePhone] = useState(profile.phone || '');
 
@@ -135,7 +179,7 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
             </div>
             <p className="hint">Your contact number is used for this ride so the driver can reach you when needed. Online payment is handled through Paystack after the trip is completed.</p>
             <button className="primary-button full" disabled={!pickupCoords || !destinationCoords || busy || submitting} aria-busy={submitting} onClick={() => setConfirmOpen(true)}>{submitting ? 'Requesting your ride…' : 'Review and request ride'} <ShieldCheck size={17} /></button>
-            {confirmOpen && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setConfirmOpen(false); }}><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="request-confirm-title"><div className="eyebrow">CONFIRM RIDE</div><h3 id="request-confirm-title">Ready to request?</h3><p>{pickup} → {destination} · ₦{fare.toLocaleString()} estimated fare</p><div className="confirm-contact"><span>Contact</span><strong>{ridePhone}</strong></div><div className="confirm-actions"><button className="secondary-button" onClick={() => setConfirmOpen(false)}>Review again</button><button className="primary-button" disabled={submitting} aria-busy={submitting} onClick={confirmRide}>{submitting ? 'Requesting…' : 'Request ride'}</button></div></div></div>}
+            {confirmOpen && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setConfirmOpen(false); }}><div ref={confirmDialogRef} className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="request-confirm-title" aria-describedby="request-confirm-description"><div className="eyebrow">CONFIRM RIDE</div><h3 id="request-confirm-title">Ready to request?</h3><p id="request-confirm-description">{pickup} → {destination} · ₦{fare.toLocaleString()} estimated fare</p><div className="confirm-contact"><span>Contact</span><strong>{ridePhone}</strong></div><div className="confirm-actions"><button type="button" className="secondary-button" onClick={() => setConfirmOpen(false)}>Review again</button><button ref={confirmRequestButtonRef} type="button" className="primary-button" disabled={submitting} aria-busy={submitting} onClick={confirmRide}>{submitting ? 'Requesting…' : 'Request ride'}</button></div></div></div>}
         </div>
     );
 }
