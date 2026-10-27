@@ -79,7 +79,12 @@ router.post('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
         driverRating: null,
       });
     }
-  } catch (error) {
+  } catch (error: any) {
+    // The database unique constraint is the final guard against simultaneous
+    // duplicate submissions for the same ride and passenger.
+    if (error?.code === 'P2002') {
+      return res.status(409).json({ error: 'This completed ride has already been rated' });
+    }
     console.error('Create rating error:', error);
     res.status(500).json({ error: 'Failed to save rating' });
   }
