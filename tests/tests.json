@@ -136,5 +136,89 @@
       "Verify the driver cannot go online or accept rides before final approval"
     ],
     "expected": "Documents are stored outside public static assets, status and review audit fields are saved, missing or failed checks remain pending/rejected, and the backend blocks driver approval/online access until requirements pass."
+  },
+  {
+    "name": "Passenger cannot mutate protected ride fields",
+    "sanity": true,
+    "viewport": "desktop",
+    "covers": [
+      "role-based authorization",
+      "ride status integrity",
+      "payment integrity",
+      "driver assignment integrity",
+      "server-side field allowlist"
+    ],
+    "description": "Verifies the generic ride update endpoint accepts only allowed status transitions and never trusts passenger-supplied ride fields.",
+    "steps": [
+      "Create a Requested ride as a passenger and record its id",
+      "Send an authenticated PUT /api/rides/:id request as that passenger with status set to Completed",
+      "Repeat with driverId, amount, paymentStatus, paymentReference, and driverPhone fields",
+      "Fetch the ride again as the passenger or administrator"
+    ],
+    "expected": "Passenger update requests are rejected with 403; status, driver assignment, fare, payment status/reference, and contact records remain unchanged."
+  },
+  {
+    "name": "Public trip-share link returns only tracking-safe fields",
+    "sanity": true,
+    "viewport": "mobile",
+    "covers": [
+      "public data minimisation",
+      "trip-share token expiry",
+      "private driver data protection",
+      "passenger contact privacy"
+    ],
+    "description": "Verifies an unauthenticated tracking link returns only the fields required by the shared-trip page.",
+    "steps": [
+      "Create an active ride and generate a temporary trip-share link",
+      "Fetch its public shared-trip API endpoint without an authenticated session",
+      "Inspect every key in the returned ride and driver objects",
+      "Check for passenger phone numbers, driver phone numbers, home address, date of birth, payout/bank fields, and payment references",
+      "Try the link after expiry"
+    ],
+    "expected": "The response contains only route/status/fare/coordinates and minimal driver display/location fields. Private profile, contact, identity, payout, and payment data are absent; expired links return 404."
+  },
+  {
+    "name": "Two drivers cannot accept the same ride",
+    "sanity": true,
+    "viewport": "desktop",
+    "covers": [
+      "atomic ride assignment",
+      "concurrent requests",
+      "conflict response",
+      "single driver ownership"
+    ],
+    "description": "Verifies the backend claims a ride atomically when two eligible online drivers attempt to accept it at nearly the same time.",
+    "steps": [
+      "Create one Requested ride with no assigned driver",
+      "Sign in as two different verified online drivers with configured payout accounts",
+      "Submit both accept requests concurrently",
+      "Reload the ride from the API and inspect its assigned driver",
+      "Check that subscribers receive the successful assignment"
+    ],
+    "expected": "Exactly one request succeeds; the other receives 409. The ride has one assigned driver and cannot be reassigned by the losing request."
+  },
+  {
+    "name": "Keyboard and small-screen accessibility smoke test",
+    "viewport": "mobile",
+    "covers": [
+      "skip link",
+      "visible keyboard focus",
+      "dialog focus trap",
+      "Escape dismissal",
+      "44px controls",
+      "reduced motion",
+      "map accessible name"
+    ],
+    "description": "Checks the core booking and confirmation experience without a mouse and at a narrow viewport.",
+    "steps": [
+      "Set the viewport to 320px wide and check for horizontal page overflow",
+      "Navigate using only Tab and Shift+Tab and verify focus indicators remain visible",
+      "Use the skip link to reach main content",
+      "Open ride confirmation and verify focus moves into the dialog and remains inside it",
+      "Dismiss the dialog with Escape and confirm focus returns to the triggering control",
+      "Enable reduced motion and verify transitions/scroll effects are reduced",
+      "Inspect the map region and confirm it has an accessible name"
+    ],
+    "expected": "Core controls remain usable without horizontal page overflow, keyboard focus is visible and managed inside dialogs, the dialog can be dismissed with Escape, and the map has a meaningful accessible name."
   }
 ]
