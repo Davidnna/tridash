@@ -83,7 +83,26 @@ router.get('/:token', async (req, res) => {
       });
     }
 
-    res.json({ ride, driver });
+    // Public tracking links must never expose full database records. Return
+    // only the route and live-tracking fields required by SharedTripRoute.
+    res.json({
+      ride: {
+        id: ride.id,
+        status: ride.status,
+        pickup: ride.pickup,
+        destination: ride.destination,
+        amount: ride.amount,
+        pickupCoords: ride.pickupCoords,
+        destinationCoords: ride.destinationCoords,
+        driver: ride.driver,
+        tricycle: ride.tricycle,
+      },
+      driver: driver ? {
+        name: driver.name,
+        tricycle: driver.tricycle,
+        lastLocation: driver.lastLocation,
+      } : null,
+    });
   } catch (error) {
     console.error('Get shared trip error:', error);
     res.status(500).json({ error: 'Failed to get shared trip' });
