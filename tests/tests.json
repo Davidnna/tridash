@@ -220,5 +220,45 @@
       "Inspect the map region and confirm it has an accessible name"
     ],
     "expected": "Core controls remain usable without horizontal page overflow, keyboard focus is visible and managed inside dialogs, the dialog can be dismissed with Escape, and the map has a meaningful accessible name."
+  },
+  {
+    "name": "Paystack settlement is reference-safe and idempotent",
+    "viewport": "desktop",
+    "covers": [
+      "passenger-only payment",
+      "exact reference matching",
+      "exact amount and currency validation",
+      "atomic payment and ride update",
+      "duplicate webhook handling",
+      "prevent double payment across references"
+    ],
+    "description": "Verifies only the owning passenger can initialize or verify payment, and one confirmed Paystack transaction can settle a ride exactly once.",
+    "steps": [
+      "Sign in as the passenger who owns a completed unpaid ride",
+      "Initialize a Paystack checkout and record its reference",
+      "Attempt verification from another passenger account and a driver account",
+      "Complete the test payment and return to the trip",
+      "Replay the same signed charge.success webhook",
+      "Attempt to settle the same ride using a different payment reference"
+    ],
+    "expected": "Only the owning passenger can verify the payment; the backend checks the exact reference, NGN currency, and expected amount; repeated events are idempotent; and a second reference cannot mark an already-paid ride as paid."
+  },
+  {
+    "name": "Passenger cancellation cannot overwrite a completed ride",
+    "viewport": "mobile",
+    "covers": [
+      "passenger-only cancellation",
+      "atomic cancellation transition",
+      "ride completion race",
+      "duplicate cancellation conflict"
+    ],
+    "description": "Verifies cancellation is authorized for passenger accounts and uses a conditional status transition rather than overwriting a newer ride state.",
+    "steps": [
+      "Sign in as the passenger who owns an active ride",
+      "Cancel the ride and confirm it is marked Cancelled",
+      "Try cancelling the same ride again",
+      "Repeat with a ride that has already reached Completed"
+    ],
+    "expected": "The first valid cancellation succeeds; duplicate or stale cancellation requests return a conflict; a completed ride remains Completed; and driver/admin accounts cannot use the passenger cancellation endpoint."
   }
 ]
