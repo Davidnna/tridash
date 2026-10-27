@@ -425,3 +425,12 @@ input:focus,textarea:focus,select:focus{outline-color:rgba(30,142,90,.18)}
 .not-found-route-line{border-top-color:#B9C9BA;border-right-color:#B9C9BA}
 .not-found-error-code{border-color:#B9C9BA;color:#1E8E5A}
 .not-found-footer{color:#5C6B60}
+
+
+/* Accessible floating scroll-to-top control, shown after the page is scrolled. */
+.scroll-to-top{position:fixed;right:22px;bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:1200;width:48px;height:48px;display:grid;place-items:center;border:1px solid #B9C9BA;border-radius:50%;background:#F5F5F2;color:#29332D;box-shadow:0 8px 24px rgba(41,51,45,.16);cursor:pointer;transition:background .18s ease,color .18s ease,transform .18s ease,box-shadow .18s ease;animation:scroll-to-top-in .18s ease-out}
+.scroll-to-top:hover{background:#B9C9BA;transform:translateY(-3px);box-shadow:0 12px 28px rgba(41,51,45,.2)}
+.scroll-to-top:focus-visible{outline:3px solid #1E8E5A;outline-offset:4px}
+@keyframes scroll-to-top-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:700px){.scroll-to-top{right:16px;bottom:calc(88px + env(safe-area-inset-bottom,0px));width:44px;height:44px}}
+@media(prefers-reduced-motion:reduce){.scroll-to-top{animation:none;transition:none;scroll-behavior:auto}}
