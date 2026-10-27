@@ -561,7 +561,7 @@ function App() {
     setRides(current => current.map(r => r.id === updated.id ? updated : r));
     setActiveRide(updated);
     setSelectedRide(updated);
-    try { const res = await api.put('/api/rides/' + updated.id, updated); if (res.data?.ride) { setRides(current => current.map(r => r.id === updated.id ? res.data.ride : r)); setActiveRide(res.data.ride); } } catch { notify('We could not save this trip update. Please try again.'); return; }
+    try { const res = await api.put('/api/rides/' + updated.id, { status }); if (res.data?.ride) { setRides(current => current.map(r => r.id === updated.id ? res.data.ride : r)); setActiveRide(res.data.ride); } } catch { notify('We could not save this trip update. Please try again.'); return; }
     notify(status === 'Completed' ? 'Trip completed' : 'Trip status updated');
     if (status === 'Completed') setShowRating(true);
   };
@@ -758,7 +758,8 @@ function App() {
   const goWorkspaceHome = () => switchWorkspace(workspaceMode);
 
   return (
-    <div className="app-shell">\n      <ScrollToTopButton />
+    <div className="app-shell">
+      <ScrollToTopButton />
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <header className="topbar" ref={topbarRef}>
         <button className="brand" aria-label="Go to workspace home" onClick={goWorkspaceHome}><span className="brand-mark"><Zap size={18} /></span><span>tridash</span></button>
@@ -830,7 +831,8 @@ function PublicSite() {
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (description) description.content = isHome ? 'Explore Tridash, learn how local tricycle rides work, review safety information, and get started as a passenger or driver.' : (page?.intro || 'Learn more about Tridash local rides.');
   }, [isHome, page?.eyebrow, page?.intro]);
-  return <div className="public-site">\n    <ScrollToTopButton />
+  return <div className="public-site">
+    <ScrollToTopButton />
     <a className="skip-link" href="#public-main">Skip to main content</a>
     <header className="public-header">
       <div className="public-header-inner">
@@ -879,7 +881,8 @@ function NotFoundPage() {
     return () => { document.title = previousTitle; };
   }, []);
 
-  return <main className="not-found-page" id="main-content">\n    <ScrollToTopButton />
+  return <main className="not-found-page" id="main-content">
+    <ScrollToTopButton />
     <div className="not-found-topbar">
       <Link to="/" className="public-brand" aria-label="Tridash home"><span className="public-brand-mark"><Zap size={19} fill="currentColor" aria-hidden="true" /></span><span>tridash</span></Link>
       <span className="not-found-help">Need a hand? <Link to="/contact">Contact us</Link></span>
