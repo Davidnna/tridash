@@ -7,7 +7,7 @@ import MapView, { reverseGeocode, type GeoPoint } from './MapView';
 import RequestPageMap from './RequestPageMap';
 import { firebaseAuth, onAuthStateChanged, resendVerification, refreshFirebaseUser, sendResetEmail, signInWithFirebase, signInWithGoogle, signOut, signUpWithFirebase } from './firebase';
 import {
-  Activity, AlertTriangle, Bell, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3,
+  Activity, AlertTriangle, ArrowUp, Bell, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3,
   CreditCard, FileCheck2, History, Home, Landmark, LogOut, MapPin, MessageSquareWarning,
   Navigation, Phone, Search, Settings, Shield, ShieldAlert, ShieldCheck, Star, RefreshCw,
   UserRound, Users, X, Zap
@@ -106,6 +106,31 @@ const defaultProfile: Profile = {
   emergencyPhone: '',
   role: 'passenger'
 };
+
+function ScrollToTopButton() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const updateVisibility = () => setVisible(window.scrollY > 320);
+    updateVisibility();
+    window.addEventListener('scroll', updateVisibility, { passive: true });
+    return () => window.removeEventListener('scroll', updateVisibility);
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <button
+      type="button"
+      className="scroll-to-top"
+      aria-label="Scroll to top"
+      title="Scroll to top"
+      onClick={() => window.scrollTo({ top: 0, left: 0, behavior: 'smooth' })}
+    >
+      <ArrowUp size={21} aria-hidden="true" />
+    </button>
+  );
+}
 
 function App() {
   const [role, setRole] = useState<Role>('passenger');
@@ -733,7 +758,7 @@ function App() {
   const goWorkspaceHome = () => switchWorkspace(workspaceMode);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell">\n      <ScrollToTopButton />
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <header className="topbar" ref={topbarRef}>
         <button className="brand" aria-label="Go to workspace home" onClick={goWorkspaceHome}><span className="brand-mark"><Zap size={18} /></span><span>tridash</span></button>
@@ -805,7 +830,7 @@ function PublicSite() {
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (description) description.content = isHome ? 'Explore Tridash, learn how local tricycle rides work, review safety information, and get started as a passenger or driver.' : (page?.intro || 'Learn more about Tridash local rides.');
   }, [isHome, page?.eyebrow, page?.intro]);
-  return <div className="public-site">
+  return <div className="public-site">\n    <ScrollToTopButton />
     <a className="skip-link" href="#public-main">Skip to main content</a>
     <header className="public-header">
       <div className="public-header-inner">
@@ -854,7 +879,7 @@ function NotFoundPage() {
     return () => { document.title = previousTitle; };
   }, []);
 
-  return <main className="not-found-page" id="main-content">
+  return <main className="not-found-page" id="main-content">\n    <ScrollToTopButton />
     <div className="not-found-topbar">
       <Link to="/" className="public-brand" aria-label="Tridash home"><span className="public-brand-mark"><Zap size={19} fill="currentColor" aria-hidden="true" /></span><span>tridash</span></Link>
       <span className="not-found-help">Need a hand? <Link to="/contact">Contact us</Link></span>
