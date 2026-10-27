@@ -52,8 +52,10 @@ router.get('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
 // Create new ride
 router.post('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
   try {
-    if (req.user!.role !== 'passenger') {
-      return res.status(403).json({ error: 'Only passenger accounts can request rides' });
+    // Passenger and admin accounts may create ride requests. Drivers use the
+    // driver workspace to accept and manage rides, not request passenger trips.
+    if (!['passenger', 'admin'].includes(req.user!.role)) {
+      return res.status(403).json({ error: 'Only passenger or admin accounts can request rides' });
     }
 
     const { pickup, destination, amount, riderPhone, passengerPhone, riderName, passenger, bookedForSelf, pickupCoords, destinationCoords } = req.body;
