@@ -533,8 +533,10 @@ function App() {
       setActiveRide(savedRide);
       setTab('home');
       notify('Ride requested. Finding a verified driver...');
-    } catch {
-      notify('We could not save the ride request. Please try again.');
+    } catch (error: any) {
+      const serverMessage = String(error?.response?.data?.error || '').trim();
+      notify(serverMessage || 'We could not save the ride request. Please try again.');
+      if (!serverMessage) console.error('Create ride request failed:', error);
     }
   };
 
