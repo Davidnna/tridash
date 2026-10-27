@@ -353,15 +353,28 @@ router.post('/:id/cancel', requireAuth(), async (req: AuthenticatedRequest, res)
       return res.status(409).json({ error: 'This ride can no longer be cancelled' });
     }
 
-    const updatedRide = await prisma.ride.update({
-      where: { id: String(req.params.id) },
+    // Claim cancellation only while the ride is still cancellable. This prevents
+    // a stale cancellation request from overwriting a driver's completion update.
+    const cancellation = await prisma.ride.updateMany({
+      where: {
+        id: String(req.params.id),
+        passengerId: req.user!.userId,
+        status: { in: ['Requested', 'Accepted', 'In Progress'] },
+      },
       data: {
         status: 'Cancelled',
         cancelledAt: new Date(),
       },
     });
 
-    // Notify subscribers
+    if (cancellation.count !== 1) {
+      return res.status(409).json({ error: 'This ride has changed and can no longer be cancelled. Refresh your trips.' });
+    }
+
+    const updatedRide = await prisma.ride.findUnique({ where: { id: String(req.params.id) } });
+    if (!updatedRide) return res.status(404).json({ error: 'Ride not found' });
+
+    // Notify subscribers only after the conditional state transition succeeds.
     await notifySubscribers('rides', updatedRide.id, updatedRide);
 
     res.json({ ride: updatedRide });
