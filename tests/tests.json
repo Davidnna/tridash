@@ -241,7 +241,7 @@
       "Replay the same signed charge.success webhook",
       "Attempt to settle the same ride using a different payment reference"
     ],
-    "expected": "Only the owning passenger can verify the payment; the backend checks the exact reference, NGN currency, and expected amount; repeated events are idempotent; and a second reference cannot mark an already-paid ride as paid."
+    "expected": "Only the owning passenger can verify the payment; the backend checks the exact reference, NGN currency, and expected amount; replayed events are idempotent; and a second reference cannot mark an already-paid ride as paid."
   },
   {
     "name": "Passenger cancellation cannot overwrite a completed ride",
@@ -260,5 +260,25 @@
       "Repeat with a ride that has already reached Completed"
     ],
     "expected": "The first valid cancellation succeeds; duplicate or stale cancellation requests return a conflict; a completed ride remains Completed; and driver/admin accounts cannot use the passenger cancellation endpoint."
+  },
+  {
+    "name": "Driver and admin accounts cannot use passenger-only ride actions",
+    "viewport": "desktop",
+    "covers": [
+      "role-based ride creation",
+      "role-based cancellation",
+      "role-based payment initialization",
+      "role-based payment verification",
+      "role-based ride ratings"
+    ],
+    "description": "Verifies sensitive passenger ride operations enforce the authenticated account role on the server, not just in the interface.",
+    "steps": [
+      "Sign in as a driver and attempt to create a ride through the API",
+      "Attempt to cancel a passenger ride as a driver",
+      "Attempt to initialize or verify payment as a driver",
+      "Attempt to rate a completed ride as a driver",
+      "Repeat the restricted requests as an administrator"
+    ],
+    "expected": "The server returns 403 for passenger-only actions from driver and admin accounts, and no ride, payment, cancellation, or rating record is changed."
   }
 ]
