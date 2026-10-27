@@ -277,7 +277,7 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
         return { authorizationUrl: '', reference: existing.reference, payment: existing, reused: true };
       }
 
-      const reference = 'TRIDASH-' + ride.id.replace(/[^A-Za-z0-9.-]/g, '-') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const reference = 'TRIDASH-' + ride.id.replace(/[^A-Za-z0-9.-]/g, '-') + '-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
       const callbackUrl =
         getFrontendOrigin() +
         '/trips/' + encodeURIComponent(ride.id) +
@@ -331,7 +331,7 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
       });
 
       return { authorizationUrl, reference, payment, reused: false };
-    });
+    }, { maxWait: 10000, timeout: 30000 });
 
     if (!session.authorizationUrl) {
       return res.status(409).json({
