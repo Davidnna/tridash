@@ -147,7 +147,7 @@ router.post('/forgot-password', async (req, res) => {
   const genericMessage = 'If an account exists for that email, we will send password-reset instructions.';
   try {
     const user = await prisma.user.findUnique({ where: { email } });
-    if (user && !(user as any).googleSub) {
+    if (user) {
       await prisma.authToken.deleteMany({ where: { userId: user.id, type: 'password_reset' } });
       const { token, tokenHash } = createAuthToken();
       await prisma.authToken.create({ data: { tokenHash, userId: user.id, type: 'password_reset', expiresAt: new Date(Date.now() + 60 * 60 * 1000) } });
