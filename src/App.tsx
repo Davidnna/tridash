@@ -81,10 +81,11 @@ type Profile = {
   role: Role;
 };
 
-const navigateFromRoot = (navigate: ReturnType<typeof useNavigate>, pathname: string, target: string) => {
+// All app destinations are absolute paths. Relative navigation based on the
+// current pathname breaks when users open nested routes directly or refresh.
+const navigateFromRoot = (navigate: ReturnType<typeof useNavigate>, _pathname: string, target: string) => {
   const cleanTarget = target.replace(/^\/+/, '');
-  const depth = pathname.split('/').filter(Boolean).length;
-  navigate(cleanTarget ? '../'.repeat(depth) + cleanTarget : (depth ? '../'.repeat(depth) : '/'));
+  navigate(cleanTarget ? `/${cleanTarget}` : '/', { preventScrollReset: true });
 };
 
 const defaultProfile: Profile = {
@@ -824,8 +825,13 @@ function App() {
 }
 
 function appHref(path: string) {
-  const appBaseUrl = String((import.meta as any).env?.VITE_TRIDASH_APP_URL || '').replace(/\/+$/, '');
-  return appBaseUrl ? `${appBaseUrl}${path}` : path;
+  // Keep public-site sign-in and sign-up links pointed at the dedicated app
+  // even if the public Render service is missing its optional environment value.
+  const appBaseUrl = String(
+    (import.meta as any).env?.VITE_TRIDASH_APP_URL || 'https://app-tridash.onrender.com'
+  ).replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${appBaseUrl}${cleanPath}`;
 }
 
 export function PublicSite() {
