@@ -123,7 +123,10 @@ function ScrollToTopButton() {
 
 function App() {
   const [role, setRole] = useState<Role>('passenger');
-  const [workspaceMode, setWorkspaceMode] = useState<'rider' | 'driver' | 'admin'>('rider');
+  const [workspaceMode, setWorkspaceMode] = useState<'rider' | 'driver' | 'admin'>(() => {
+    const path = window.location.pathname;
+    return path.startsWith('/driver') ? 'driver' : path.startsWith('/admin') ? 'admin' : 'rider';
+  });
   const location = useLocation();
   const navigate = useNavigate();
   const rootNavigate = (target: string) => navigateFromRoot(navigate, location.pathname, target);
@@ -802,11 +805,11 @@ function App() {
         <Route path="shared-trip/:token" element={<SharedTripRoute />} />
         <Route path="safety" element={renderPassenger('safety')} />
         <Route path="profile" element={renderPassenger('profile')} />
-        <Route path="driver" element={workspaceMode === 'driver' ? renderDriver('home') : renderPassenger('home')} />
-        <Route path="driver/requests" element={workspaceMode === 'driver' ? renderDriver('requests') : renderPassenger('home')} />
-        <Route path="driver/trips" element={workspaceMode === 'driver' ? renderDriver('trips') : renderPassenger('home')} />
-        <Route path="driver/trips/:rideId" element={workspaceMode === 'driver' ? <RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} backTarget="driver/trips" viewAsDriver /> : renderPassenger('home')} />
-        <Route path="driver/profile" element={workspaceMode === 'driver' ? renderDriver('profile') : renderPassenger('home')} />
+        <Route path="driver" element={role === 'driver' && location.pathname.startsWith('/driver') ? renderDriver('home') : workspaceMode === 'driver' ? renderDriver('home') : renderPassenger('home')} />
+        <Route path="driver/requests" element={role === 'driver' ? renderDriver('requests') : <Navigate replace to="/" />} />
+        <Route path="driver/trips" element={role === 'driver' ? renderDriver('trips') : <Navigate replace to="/" />} />
+        <Route path="driver/trips/:rideId" element={role === 'driver' ? <RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} backTarget="driver/trips" viewAsDriver /> : <Navigate replace to="/" />} />
+        <Route path="driver/profile" element={role === 'driver' ? renderDriver('profile') : <Navigate replace to="/" />} />
         <Route path="admin" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} /> : renderPassenger('home')} />
         <Route path="admin/users" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} initialSection="users" /> : renderPassenger('home')} />
         <Route path="admin/drivers" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} initialSection="drivers" /> : renderPassenger('home')} />
