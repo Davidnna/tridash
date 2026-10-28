@@ -305,7 +305,7 @@ router.post('/forgot-password', async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email);
     const user = await prisma.user.findUnique({ where: { email } });
-    if (user && user.passwordHash) {
+    if (user && (user.passwordHash || user.firebaseUid)) {
       const token = makeOneTimeToken();
       await prisma.user.update({ where: { id: user.id }, data: { passwordResetTokenHash: await digestHex(token), passwordResetExpiresAt: tokenExpiresAt() } });
       await sendAuthEmail({ to: email, name: user.name, kind: 'reset', token });
@@ -326,7 +326,7 @@ router.post('/reset-password', async (req, res) => {
     if (!user) return res.status(400).json({ error: 'Password reset link is invalid or expired.' });
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: await bcrypt.hash(password, 12), passwordResetTokenHash: null, passwordResetExpiresAt: null },
+      data: { passwordHash: await bcrypt.hash(password, 12), firebaseUid: null, emailVerified: true, passwordResetTokenHash: null, passwordResetExpiresAt: null },
     });
     await prisma.session.deleteMany({ where: { userId: user.id } });
     res.json({ ok: true, message: 'Password updated. Please sign in.' });
