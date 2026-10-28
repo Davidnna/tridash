@@ -4,7 +4,6 @@ import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
-import { initializeFirebase } from './utils/firebase';
 import { ensureRuntimeSchema } from './utils/payment-schema';
 import { setupWebSocket } from './services/websocket';
 
@@ -57,9 +56,6 @@ app.use(cors(corsOptions));
 app.use('/api/payments/paystack/webhook', express.raw({ type: '*/*' }));
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
-
-// Initialize Firebase
-initializeFirebase();
 
 // Setup WebSocket
 setupWebSocket(io);
