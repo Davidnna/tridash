@@ -25,18 +25,33 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+
+// Support one or more frontend origins. FRONTEND_URL remains compatible with
+// the existing Render setting; FRONTEND_URLS can contain comma-separated
+// additional origins.
+const allowedOrigins = [
+  process.env.FRONTEND_URL || '',
+  process.env.FRONTEND_URLS || '',
+]
+  .flatMap((value) => value.split(','))
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (allowedOrigins.length === 0) {
+  allowedOrigins.push('http://localhost:5173');
+}
+
+const corsOptions: cors.CorsOptions = {
+  origin: allowedOrigins,
+  credentials: true,
+};
+
 const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-    credentials: true,
-  },
+  cors: corsOptions,
 });
 
 // Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-}));
+app.use(cors(corsOptions));
 // Paystack webhook needs the raw body for HMAC signature verification, so it
 // is mounted before express.json().
 app.use('/api/payments/paystack/webhook', express.raw({ type: '*/*' }));
@@ -81,8 +96,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const PORT = process.env.PORT || 3001;
 
 // Ensure the Payment table matches the Prisma model before accepting requests.
- // This safely adds the nullable checkout URL column on existing databases,
- // including provider migrations where the schema was not fully migrated.
+// This safely adds the nullable checkout URL column on existing databases,
+// including provider migrations where the schema was not fully migrated.
 ensureRuntimeSchema()
   .then(() => {
     httpServer.listen(PORT, () => {
