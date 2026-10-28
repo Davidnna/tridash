@@ -25,8 +25,8 @@ export async function sendAuthEmail(input: {
   const isVerify = input.kind === 'verify';
   const isReset = input.kind === 'reset';
   const url = isVerify
-    ? appUrl + '/verify-email?token=' + encodeURIComponent(input.token)
-    : appUrl + '/reset-password?token=' + encodeURIComponent(input.token);
+    ? appUrl + '/?verifyToken=' + encodeURIComponent(input.token)
+    : appUrl + '/login?resetToken=' + encodeURIComponent(input.token);
   const title = isVerify ? 'Verify your Tridash email' : isReset ? 'Reset your Tridash password' : 'Tridash notification';
   const action = isVerify ? 'Verify email address' : 'Reset password';
   const description = isVerify
