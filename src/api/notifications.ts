@@ -1,9 +1,6 @@
 // Notifications API - Replaces @appdeploy/client notifications
-// Note: This is a simple stub. For full push notifications, you'll need to:
-// 1. Set up Firebase Cloud Messaging in your Firebase project
-// 2. Request notification permissions from the user
-// 3. Get FCM token and send to backend
-// 4. Backend sends push notifications via Firebase Admin SDK
+// Note: This is a browser-permission stub. For full push notifications, choose a provider,
+// register device tokens with the backend, and deliver notifications through that provider.
 
 class NotificationsClient {
   async requestPermission(): Promise<boolean> {
