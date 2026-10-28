@@ -246,12 +246,11 @@ function App() {
         // return URL /trips/:id?payment=paystack) or verification is lost.
         const currentPath = window.location.pathname;
         const atBareRoot = currentPath === '/' || currentPath === '';
-        const onRoleHome = currentPath === '/driver' || currentPath.startsWith('/admin');
-        if (atBareRoot || (nextRole === 'admin' && !onRoleHome)) {
-          setTab(nextRole === 'admin' ? 'admin' : 'home');
-          if (atBareRoot) {
-            rootNavigate(nextRole === 'admin' ? 'admin' : '');
-          }
+        // Preserve deep links on refresh. Only send a user to their workspace
+        // home when they entered the app at the bare root URL.
+        if (atBareRoot) {
+          if (nextRole === 'admin') navigate('/admin', { replace: true });
+          else if (nextRole === 'driver') navigate('/driver', { replace: true });
         }
         if (result.data.profile) setProfile(result.data.profile);
       } catch (error: any) {
