@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import { initializeFirebase } from './utils/firebase';
+import { ensureAuthSchema } from './utils/auth-schema';
 import { ensureRuntimeSchema } from './utils/payment-schema';
 import { setupWebSocket } from './services/websocket';
 
@@ -99,6 +100,7 @@ const PORT = process.env.PORT || 3001;
 // This safely adds the nullable checkout URL column on existing databases,
 // including provider migrations where the schema was not fully migrated.
 ensureRuntimeSchema()
+  .then(() => ensureAuthSchema())
   .then(() => {
     httpServer.listen(PORT, () => {
       console.log(`🚀 Tridash server running on port ${PORT}`);
