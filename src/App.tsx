@@ -747,11 +747,11 @@ function App() {
   if (isSharedTripPath) return <Routes><Route path="/shared-trip/:token" element={<SharedTripRoute />} /><Route path="*" element={<NotFoundPage />} /></Routes>;
   if (isPublicContentPath && (!authUser || location.pathname !== '/')) return <PublicSite />;
   if (!authUser && !isPublicContentPath && !isAuthPath && !isPrivateAppPath) return <NotFoundPage />;
-  if (!authReady) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Checking your secure session…</p></div>;
+  if (!authReady || (Boolean(authUser) && loading)) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Preparing your workspace…</p></div>;
   if (!authUser) return <AuthScreen busy={authBusy} onSignIn={signIn} onSignUp={signUp} onGoogleSignIn={signInGoogle} onResetPassword={resetPassword} />;
   if (!authUser.emailVerified) return <VerificationScreen busy={authBusy} firebaseUser={authUser.firebaseUser} onVerified={async (refreshed: any) => { setAuthBusy(true); try { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } finally { setAuthBusy(false); } }} onRefresh={async () => { setAuthBusy(true); try { const refreshed = await refreshFirebaseUser(authUser.firebaseUser); if (refreshed?.emailVerified) { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } else { notify('Your email is not verified yet. Open the verification link, then try again.'); } } catch (error: any) { notify(error?.message || 'We could not refresh your verification status.'); } finally { setAuthBusy(false); } }} onResend={async () => { try { await resendVerification(authUser.firebaseUser); notify('Verification email sent again. Check spam or junk if you do not see it.'); } catch (error: any) { notify(error?.message || 'Unable to resend the verification email.'); } }} onSignOut={async () => { await api.post('/api/auth/logout').catch(() => {}); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); }} />;
   if (isAuthPath) return <Navigate replace to={authUser.role === 'admin' ? '/admin' : authUser.role === 'driver' ? '/driver' : '/'} />;
-  if (loading) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Loading your safe-ride workspace…</p></div>;
+
 
   const switchWorkspace = (next: 'rider' | 'driver' | 'admin') => {
     if (next === 'driver' && role !== 'driver') return;
