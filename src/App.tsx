@@ -225,6 +225,15 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
+    const params = new URLSearchParams(window.location.search);
+    const verificationToken = params.get('verifyToken');
+    if (verificationToken) {
+      api.get('/api/auth/verify-email?token=' + encodeURIComponent(verificationToken))
+        .then(() => { if (mounted) { notify('Email verified. You can now sign in.'); navigate('/login', { replace: true }); } })
+        .catch((error: any) => { if (mounted) notify(error?.message || 'Verification link is invalid or expired.'); })
+        .finally(() => { if (mounted) setAuthReady(true); });
+      return () => { mounted = false; };
+    }
     api.get('/api/auth/me').then(result => {
       if (!mounted || !result.data?.user) return;
       const user = result.data.user;
@@ -438,6 +447,16 @@ function App() {
       notify('Signed in with Google');
       return true;
     } catch (error: any) { notify(error?.message || 'Google sign-in could not be completed.'); return false; }
+    finally { setAuthBusy(false); }
+  };
+
+  const completePasswordReset = async (token: string, password: string) => {
+    setAuthBusy(true);
+    try {
+      await api.post('/api/auth/reset-password', { token, password });
+      notify('Password updated. Please sign in.');
+      return true;
+    } catch (error: any) { notify(error?.message || 'Password reset could not be completed.'); return false; }
     finally { setAuthBusy(false); }
   };
 
@@ -712,7 +731,7 @@ function App() {
   if (deploymentMode !== 'app' && isPublicContentPath && (!authUser || location.pathname !== '/')) return <PublicSite />;
   if (!authUser && !isPublicContentPath && !isAuthPath && !isPrivateAppPath) return <NotFoundPage />;
   if (!authReady || (Boolean(authUser) && loading)) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Preparing your workspace…</p></div>;
-  if (!authUser) return <AuthScreen busy={authBusy} onSignIn={signIn} onSignUp={signUp} onGoogleSignIn={signInGoogle} onResetPassword={resetPassword} />;
+  if (!authUser) return <AuthScreen busy={authBusy} onSignIn={signIn} onSignUp={signUp} onGoogleSignIn={signInGoogle} onResetPassword={resetPassword} onCompleteReset={completePasswordReset} />;
 
   if (isAuthPath) return <Navigate replace to={authUser.role === 'admin' ? '/admin' : authUser.role === 'driver' ? '/driver' : '/'} />;
 
@@ -992,7 +1011,7 @@ function RideRoute({ rides, setSelectedRide, payRide, paymentBusy, driverLocatio
   return <RideDetail ride={ride} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} backTarget={backTarget} viewAsDriver={viewAsDriver} />;
 }
 
-function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword }: { busy: boolean; onSignIn: (email: string, password: string) => Promise<boolean>; onSignUp: (name: string, email: string, password: string, role: 'passenger' | 'driver') => Promise<boolean>; onGoogleSignIn: () => Promise<boolean>; onResetPassword: (email: string) => Promise<boolean> }) {
+function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword, onCompleteReset }: { busy: boolean; onSignIn: (email: string, password: string) => Promise<boolean>; onSignUp: (name: string, email: string, password: string, role: 'passenger' | 'driver') => Promise<boolean>; onGoogleSignIn: () => Promise<boolean>; onResetPassword: (email: string) => Promise<boolean>; onCompleteReset: (token: string, password: string) => Promise<boolean> }) {
   const authLocation = useLocation();
   const [mode, setMode] = useState<'signin' | 'signup'>(authLocation.pathname === '/signup' ? 'signup' : 'signin');
   const [name, setName] = useState('');
@@ -1001,6 +1020,8 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword 
   const [role, setRole] = useState<'passenger' | 'driver'>(new URLSearchParams(authLocation.search).get('role') === 'driver' ? 'driver' : 'passenger');
   const [errorText, setErrorText] = useState('');
   const [forgotMode, setForgotMode] = useState(false);
+  const [resetToken, setResetToken] = useState(new URLSearchParams(authLocation.search).get('resetToken') || '');
+  const [onResetTokenMode, setOnResetTokenMode] = useState(Boolean(new URLSearchParams(authLocation.search).get('resetToken')));
 
   useEffect(() => {
     setMode(authLocation.pathname === '/signup' ? 'signup' : 'signin');
@@ -1008,6 +1029,9 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword 
     setRole(requestedRole === 'driver' ? 'driver' : 'passenger');
     setErrorText('');
     setForgotMode(false);
+    const token = new URLSearchParams(authLocation.search).get('resetToken') || '';
+    setResetToken(token);
+    setOnResetTokenMode(Boolean(token));
   }, [authLocation.pathname, authLocation.search]);
 
   const submit = async (event: React.FormEvent) => {
@@ -1021,15 +1045,20 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword 
       setErrorText('Enter your email address.');
       return;
     }
-    if (password.length < 8) {
-      setErrorText('Password must be at least 8 characters.');
+    if (password.length < (onResetTokenMode ? 10 : 8)) {
+      setErrorText(onResetTokenMode ? 'Password must be at least 10 characters.' : 'Password must be at least 8 characters.');
       return;
     }
-    const ok = mode === 'signin'
-      ? await onSignIn(email.trim(), password)
-      : await onSignUp(name.trim(), email.trim(), password, role);
-    if (!ok) setErrorText(mode === 'signin' ? 'We could not sign you in with those details.' : 'We could not create the account. Please check the details and try again.');
+    const ok = onResetTokenMode
+      ? await onCompleteReset(resetToken, password)
+      : mode === 'signin'
+        ? await onSignIn(email.trim(), password)
+        : await onSignUp(name.trim(), email.trim(), password, role);
+    if (!ok) setErrorText(onResetTokenMode ? 'We could not reset your password. The link may have expired.' : mode === 'signin' ? 'We could not sign you in with those details.' : 'We could not create the account. Please check the details and try again.');
+    else if (onResetTokenMode) { setOnResetTokenMode(false); setResetToken(''); navigate('/login', { replace: true }); }
   };
+
+  if (onResetTokenMode) return <div className="auth-shell"><div className="auth-panel"><div className="auth-brand"><span className="brand-mark"><Zap size={18} /></span><strong>tridash</strong></div><div className="eyebrow">ACCOUNT RECOVERY</div><h1>Choose a new password.</h1><p className="auth-intro">Use at least 10 characters. This reset link can only be used once.</p><form className="auth-form" onSubmit={submit}><label>New password<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" minLength={10} required /></label>{errorText && <div className="auth-error"><AlertTriangle size={16} />{errorText}</div>}<button className="primary-button full auth-submit" disabled={busy}>{busy ? 'Updating…' : 'Update password'}</button></form></div></div>;
 
   if (forgotMode) return <div className="auth-shell"><div className="auth-panel"><div className="auth-brand"><span className="brand-mark"><Zap size={18} /></span><strong>tridash</strong></div><div className="eyebrow">ACCOUNT RECOVERY</div><h1>Reset your password.</h1><p className="auth-intro">We’ll send a secure Tridash password-reset link to your email address.</p><form className="auth-form" onSubmit={async event => { event.preventDefault(); if (!email.trim()) { setErrorText('Enter your email address.'); return; } await onResetPassword(email.trim()); }}><label>Email address<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></label>{errorText && <div className="auth-error"><AlertTriangle size={16} />{errorText}</div>}<button className="primary-button full auth-submit" disabled={busy}>{busy ? 'Sending…' : 'Send reset email'}</button><button type="button" className="secondary-button full" onClick={() => { setForgotMode(false); setErrorText(''); }}>Back to sign in</button></form></div></div>;
 
