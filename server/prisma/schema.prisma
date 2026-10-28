@@ -12,7 +12,9 @@ datasource db {
 
 model User {
   id            String   @id @default(cuid())
-  firebaseUid   String   @unique
+  firebaseUid   String?  @unique
+  passwordHash  String?
+  googleSubject String?  @unique
   email         String   @unique
   name          String
   role          String   // 'passenger', 'driver', 'admin'
@@ -21,6 +23,11 @@ model User {
   status        String   @default("active") // 'active', 'suspended'
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  emailVerificationTokenHash String?   @unique
+  emailVerificationExpiresAt DateTime?
+  passwordResetTokenHash    String?   @unique
+  passwordResetExpiresAt    DateTime?
 
   sessions      Session[]
   profile       Profile?
