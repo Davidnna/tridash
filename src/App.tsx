@@ -242,16 +242,15 @@ function App() {
         const nextRole = result.data.user.role || 'passenger';
         setRole(nextRole);
         setWorkspaceMode(nextRole === 'admin' ? 'admin' : nextRole === 'driver' ? 'driver' : 'rider');
-        // Only route to the role's home when the user landed on the bare root.
-        // Never redirect away from a deep link (e.g. the Paystack payment
-        // return URL /trips/:id?payment=paystack) or verification is lost.
+        // Preserve the current route when Firebase restores the session.
+        // In particular, '/' is the Rider Workspace home and must remain there
+        // for admins who deliberately switched from Admin to Rider Workspace.
+        // Redirect drivers from '/' to their dedicated workspace, but do not
+        // force admins from '/' to '/admin' on refresh.
         const currentPath = window.location.pathname;
         const atBareRoot = currentPath === '/' || currentPath === '';
-        // Preserve deep links on refresh. Only send a user to their workspace
-        // home when they entered the app at the bare root URL.
-        if (atBareRoot) {
-          if (nextRole === 'admin') navigate('/admin', { replace: true });
-          else if (nextRole === 'driver') navigate('/driver', { replace: true });
+        if (atBareRoot && nextRole === 'driver') {
+          navigate('/driver', { replace: true });
         }
         if (result.data.profile) setProfile(result.data.profile);
       } catch (error: any) {
