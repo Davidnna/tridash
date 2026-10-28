@@ -336,7 +336,7 @@ router.get('/me', async (req, res) => {
   try {
     const user = await getCurrentUser(req);
 
-    if (!user?.firebaseUid) {
+    if (!user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
