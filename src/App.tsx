@@ -805,7 +805,7 @@ function App() {
         <Route path="shared-trip/:token" element={<SharedTripRoute />} />
         <Route path="safety" element={renderPassenger('safety')} />
         <Route path="profile" element={renderPassenger('profile')} />
-        <Route path="driver" element={role === 'driver' && location.pathname.startsWith('/driver') ? renderDriver('home') : workspaceMode === 'driver' ? renderDriver('home') : renderPassenger('home')} />
+        <Route path="driver" element={role === 'driver' ? renderDriver('home') : <Navigate replace to="/" />} />
         <Route path="driver/requests" element={role === 'driver' ? renderDriver('requests') : <Navigate replace to="/" />} />
         <Route path="driver/trips" element={role === 'driver' ? renderDriver('trips') : <Navigate replace to="/" />} />
         <Route path="driver/trips/:rideId" element={role === 'driver' ? <RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} backTarget="driver/trips" viewAsDriver /> : <Navigate replace to="/" />} />
