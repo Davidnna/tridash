@@ -1041,7 +1041,7 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword,
       setErrorText('Enter your full name.');
       return;
     }
-    if (!email.trim()) {
+    if (!onResetTokenMode && !email.trim()) {
       setErrorText('Enter your email address.');
       return;
     }
