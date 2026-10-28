@@ -744,12 +744,13 @@ function App() {
   const isAuthPath = location.pathname === '/login' || location.pathname === '/signup';
   const isSharedTripPath = location.pathname.startsWith('/shared-trip/');
   const isPrivateAppPath = /^\/(request|trips|safety|profile|driver|admin)(\/|$)/.test(location.pathname);
+  const deploymentMode = String((import.meta as any).env?.VITE_TRIDASH_DEPLOYMENT || 'combined');
   if (isSharedTripPath) return <Routes><Route path="/shared-trip/:token" element={<SharedTripRoute />} /><Route path="*" element={<NotFoundPage />} /></Routes>;
   // On the root URL, wait for Firebase to restore the session before choosing
   // between the public landing page and the authenticated user's dashboard.
   // This prevents a signed-in user from briefly seeing the public site on refresh.
   if (location.pathname === '/' && !authReady) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Checking your secure session…</p></div>;
-  if (isPublicContentPath && (!authUser || location.pathname !== '/')) return <PublicSite />;
+  if (deploymentMode !== 'app' && isPublicContentPath && (!authUser || location.pathname !== '/')) return <PublicSite />;
   if (!authUser && !isPublicContentPath && !isAuthPath && !isPrivateAppPath) return <NotFoundPage />;
   if (!authReady || (Boolean(authUser) && loading)) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Preparing your workspace…</p></div>;
   if (!authUser) return <AuthScreen busy={authBusy} onSignIn={signIn} onSignUp={signUp} onGoogleSignIn={signInGoogle} onResetPassword={resetPassword} />;
@@ -822,7 +823,12 @@ function App() {
   );
 }
 
-function PublicSite() {
+function appHref(path: string) {
+  const appBaseUrl = String((import.meta as any).env?.VITE_TRIDASH_APP_URL || '').replace(/\\/+$/, '');
+  return appBaseUrl ? `${appBaseUrl}${path}` : path;
+}
+
+export function PublicSite() {
   const location = useLocation();
   const path = location.pathname;
   const pages: Record<string, { eyebrow: string; title: string; intro: string }> = {
