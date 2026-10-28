@@ -15,13 +15,16 @@ const hostname = window.location.hostname.toLowerCase();
 // its Render environment variable is accidentally configured incorrectly.
 const isPublicHost = hostname === 'tridash.onrender.com';
 const isAppHost = hostname === 'app-tridash.onrender.com';
-const publicOnly = isPublicHost || (deploymentMode === 'public' && !isAppHost);
-const appOnly = isAppHost || (deploymentMode === 'app' && !isPublicHost);
+
+// Prefer the hostname for the two production domains so a mistaken Render
+// environment value cannot expose the authenticated app on the public site.
+// For local development and preview hosts, keep the deployment-mode switch.
+const renderPublicSite = isPublicHost || (!isAppHost && deploymentMode === 'public');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      {publicOnly ? <PublicSite /> : appOnly ? <App /> : <App />}
+      {renderPublicSite ? <PublicSite /> : <App />}
     </BrowserRouter>
   </StrictMode>
 );
