@@ -12,7 +12,9 @@ datasource db {
 
 model User {
   id            String   @id @default(cuid())
-  firebaseUid   String   @unique
+  firebaseUid   String?  @unique
+  googleSub     String?  @unique
+  passwordHash  String?
   email         String   @unique
   name          String
   role          String   // 'passenger', 'driver', 'admin'
@@ -23,6 +25,7 @@ model User {
   updatedAt     DateTime @updatedAt
 
   sessions      Session[]
+  authTokens    AuthToken[]
   profile       Profile?
   driver        Driver?
   ridesAsPassenger Ride[] @relation("PassengerRides")
@@ -284,4 +287,19 @@ model EntitySubscription {
 
   @@index([entityType, entityId])
   @@index([connectionId])
+}
+
+
+model AuthToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  type      String   // email_verification or password_reset
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type, expiresAt])
 }
