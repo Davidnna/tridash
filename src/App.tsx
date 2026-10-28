@@ -1056,35 +1056,6 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword 
   </div>;
 }
 
-function VerificationScreen({ busy, firebaseUser, onVerified, onRefresh, onResend, onSignOut }: { busy: boolean; firebaseUser: any; onVerified: (refreshed: any) => Promise<void>; onRefresh: () => Promise<void>; onResend: () => Promise<void>; onSignOut: () => Promise<void> }) {
-  const [checking, setChecking] = useState(false);
-  const onVerifiedRef = useRef(onVerified);
-  onVerifiedRef.current = onVerified;
-  const [resending, setResending] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const check = async () => {
-      if (cancelled || busy || !firebaseUser) return;
-      setChecking(true);
-      try {
-        const refreshed = await refreshFirebaseUser(firebaseUser);
-        if (!cancelled && refreshed?.emailVerified) await onVerifiedRef.current(refreshed);
-      } catch {}
-      if (!cancelled) setChecking(false);
-    };
-    const interval = window.setInterval(check, 4000);
-    return () => { cancelled = true; window.clearInterval(interval); };
-  }, [firebaseUser, busy]);
-
-  const handleResend = async () => {
-    setResending(true);
-    try { await onResend(); } finally { setResending(false); }
-  };
-
-  return <div className="auth-shell"><div className="auth-panel"><div className="auth-brand"><span className="brand-mark"><Zap size={18} /></span><strong>tridash</strong></div><div className="eyebrow">VERIFY YOUR EMAIL</div><h1>Check your inbox.</h1><p className="auth-intro">We sent a verification link to <strong>{firebaseUser?.email || 'your email address'}</strong>. Open it, then return here. Tridash checks automatically every few seconds.</p><button className="primary-button full" disabled={busy || checking} onClick={onRefresh}>{busy || checking ? 'Checking verification…' : 'I have verified my email'}</button><button className="secondary-button full" disabled={busy || resending} onClick={handleResend}>{resending ? 'Sending…' : 'Resend verification email'}</button><button className="text-button" disabled={busy || resending} onClick={onSignOut}>Sign out</button><div className="auth-note"><ShieldCheck size={16} /><span>Check your spam or junk folder if the message is missing. Verified email is required before Tridash can open protected ride and safety data.</span></div></div></div>;
-}
-
 function PassengerWorkspace(props: any) {
   const navigate = useNavigate();
   const location = useLocation();
