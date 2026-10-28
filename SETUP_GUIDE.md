@@ -1,6 +1,19 @@
 # Tridash — Local Development and Deployment Guide
 
-This project is a portable Vite + React frontend with an Express + Socket.IO backend, PostgreSQL, Prisma, Firebase Authentication, Mapbox, and Paystack.
+This project is a portable Vite + React frontend with an Express + Socket.IO backend, PostgreSQL (Neon-compatible), Prisma, Tridash-managed authentication, Google Identity Services, branded transactional email, Mapbox, and Paystack.
+
+## Tridash-owned authentication setup
+
+The app now supports backend-managed email/password accounts, Google Identity Services, one-time email-verification tokens, password-reset tokens, and HttpOnly session cookies. User, profile, driver, ride and payment data remain in the existing PostgreSQL database.
+
+Before enabling this version in production:
+1. In Google Cloud Console, create a **Web application OAuth client ID**. Add the authorized JavaScript origins `https://app-tridash.onrender.com` and any local development origin you use. Set the same client ID as `GOOGLE_CLIENT_ID` on the API and `VITE_GOOGLE_CLIENT_ID` on the frontend.
+2. Configure Resend, verify your sending domain, and set `RESEND_API_KEY`, `AUTH_FROM_EMAIL`, and `AUTH_APP_URL` on the API.
+3. Deploy the API only after those secrets are set. The server's additive startup schema step adds the custom-auth columns and token table.
+4. Test a new email/password signup, verify-email link, login, forgot-password email, reset-password link, Google sign-in, logout, refresh/session restore, and the existing superadmin, driver, and passenger roles.
+5. Existing Firebase-only passwords cannot be exported as password hashes. Existing users should use Google sign-in with their already-verified email or request a Tridash password-reset email to establish a new password. Do not delete legacy user records or the `firebaseUid` column until account migration has been reviewed.
+
+Email reset responses are intentionally generic so the endpoint does not reveal whether an email address has an account.
 
 ## Run locally
 
@@ -97,9 +110,10 @@ Configure these server environment variables in the hosting dashboard:
 - `NODE_ENV=production`
 - `FRONTEND_URL=https://your-frontend-domain.example`
 - `JWT_SECRET`
-- `FIREBASE_PROJECT_ID`
-- `FIREBASE_CLIENT_EMAIL`
-- `FIREBASE_PRIVATE_KEY` with escaped `\\n` line breaks
+- `GOOGLE_CLIENT_ID` (Google OAuth web client ID; also set `VITE_GOOGLE_CLIENT_ID` on the frontend)
+- `RESEND_API_KEY`
+- `AUTH_FROM_EMAIL` (must use a verified sender/domain in Resend)
+- `AUTH_APP_URL=https://app-tridash.onrender.com` with escaped `\\n` line breaks
 - `MAPBOX_PUBLIC_TOKEN`
 - `PAYSTACK_SECRET_KEY`
 - `SUPER_ADMIN_EMAIL`
