@@ -57,6 +57,9 @@ router.post('/google', async (req, res) => {
     let user = await prisma.user.findUnique({ where: { googleSub } });
     if (!user) {
       const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing?.googleSub && existing.googleSub !== googleSub) {
+        return res.status(409).json({ error: 'This email is linked to a different Google identity. Use your existing sign-in method or contact support.' });
+      }
       const isSuperAdmin = email === SUPER_ADMIN_EMAIL.toLowerCase();
       const role = isSuperAdmin ? 'admin' : (existing?.role || requestedRole);
       if (existing) {
