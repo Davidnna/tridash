@@ -745,6 +745,10 @@ function App() {
   const isSharedTripPath = location.pathname.startsWith('/shared-trip/');
   const isPrivateAppPath = /^\/(request|trips|safety|profile|driver|admin)(\/|$)/.test(location.pathname);
   if (isSharedTripPath) return <Routes><Route path="/shared-trip/:token" element={<SharedTripRoute />} /><Route path="*" element={<NotFoundPage />} /></Routes>;
+  // On the root URL, wait for Firebase to restore the session before choosing
+  // between the public landing page and the authenticated user's dashboard.
+  // This prevents a signed-in user from briefly seeing the public site on refresh.
+  if (location.pathname === '/' && !authReady) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Checking your secure session…</p></div>;
   if (isPublicContentPath && (!authUser || location.pathname !== '/')) return <PublicSite />;
   if (!authUser && !isPublicContentPath && !isAuthPath && !isPrivateAppPath) return <NotFoundPage />;
   if (!authReady || (Boolean(authUser) && loading)) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Preparing your workspace…</p></div>;
