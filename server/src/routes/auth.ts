@@ -185,13 +185,15 @@ router.post('/register', async (req, res) => {
     const token = makeOneTimeToken();
     const passwordHash = await bcrypt.hash(password, 12);
     const isSuperAdmin = email === SUPER_ADMIN_EMAIL.toLowerCase();
+    const requestedRole = req.body?.role === 'driver' ? 'driver' : 'passenger';
+    const accountRole = isSuperAdmin ? 'admin' : requestedRole;
     const user = await prisma.user.create({
       data: {
-        firebaseUid: null, email, name, role: isSuperAdmin ? 'admin' : 'passenger',
+        firebaseUid: null, email, name, role: accountRole,
         isSuperAdmin, emailVerified: false, passwordHash,
         emailVerificationTokenHash: await digestHex(token),
         emailVerificationExpiresAt: tokenExpiresAt(),
-        profile: { create: { name, phone: '', emergencyName: '', emergencyPhone: '', role: isSuperAdmin ? 'admin' : 'passenger' } },
+        profile: { create: { name, phone: '', emergencyName: '', emergencyPhone: '', role: accountRole } },
       },
     });
     try {
