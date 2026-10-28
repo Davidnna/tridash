@@ -1,11 +1,21 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useLocation } from 'react-router-dom';
 import App, { PublicSite } from './App';
 import './index.css';
 import './theme-refresh.css';
 import './public-site-refresh.css';
 import './public-home-layout-fix.css';
+
+function ScrollToTopOnRouteChange() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [pathname]);
+
+  return null;
+}
 
 const deploymentMode = String((import.meta as any).env?.VITE_TRIDASH_DEPLOYMENT || 'combined');
 const hostname = window.location.hostname.toLowerCase();
@@ -24,6 +34,7 @@ const renderPublicSite = isPublicHost || (!isAppHost && deploymentMode === 'publ
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
+      <ScrollToTopOnRouteChange />
       {renderPublicSite ? <PublicSite /> : <App />}
     </BrowserRouter>
   </StrictMode>
