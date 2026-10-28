@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import prisma from '../utils/database';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from '../middleware/auth';
-import { getFirebaseAuth } from '../utils/firebase';
 import { readPrivateDocument } from '../services/privateDocumentStorage';
 import { requiredDocumentTypes } from '../services/driverVerification';
 
@@ -242,25 +241,7 @@ router.post('/reset-users', requireAuth(), requireAdmin(), async (req: Authentic
       where: { id: { in: userIds } },
     });
 
-    // Delete Firebase users
-    const firebaseAuth = getFirebaseAuth();
-    let deletedFirebaseUsers = 0;
-
-    if (firebaseAuth) {
-      try {
-        const listResult = await firebaseAuth.listUsers(1000);
-        const firebaseUidsToDelete = listResult.users
-          .filter((user: { email?: string }) => user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL)
-          .map((user: { uid: string }) => user.uid);
-
-        if (firebaseUidsToDelete.length > 0) {
-          const result = await firebaseAuth.deleteUsers(firebaseUidsToDelete);
-          deletedFirebaseUsers = result.successCount;
-        }
-      } catch (error) {
-        console.error('Firebase user deletion error:', error);
-      }
-    }
+    const deletedFirebaseUsers = 0; // Tridash now owns account authentication.
 
     res.json({
       ok: true,
