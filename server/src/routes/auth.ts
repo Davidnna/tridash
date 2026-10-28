@@ -149,8 +149,6 @@ router.post('/firebase-session', async (req, res) => {
 
 // Tridash-managed email/password and Google authentication.
 // Legacy Firebase endpoints remain available during the staged account migration.
-import bcrypt from 'bcrypt';
-import { sendAuthEmail, makeOneTimeToken, tokenExpiresAt } from '../utils/auth-email';
 
 const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
 const publicUser = (user: any) => ({
