@@ -241,12 +241,9 @@ router.post('/reset-users', requireAuth(), requireAdmin(), async (req: Authentic
       where: { id: { in: userIds } },
     });
 
-    const deletedFirebaseUsers = 0; // Tridash now owns account authentication.
-
     res.json({
       ok: true,
       deletedAppUsers: deleteResult.count,
-      deletedFirebaseUsers,
     });
   } catch (error) {
     console.error('Reset users error:', error);
