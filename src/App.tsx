@@ -398,7 +398,7 @@ function App() {
     setRole(user.role || 'passenger');
     setWorkspaceMode(user.role === 'admin' ? 'admin' : user.role === 'driver' ? 'driver' : 'rider');
     if (result.data.profile) setProfile(result.data.profile);
-    setTab(user.role === 'admin' ? 'admin' : 'home');
+    navigate(user.role === 'admin' ? '/admin' : user.role === 'driver' ? '/driver' : '/', { replace: true });
     return user;
   };
 
