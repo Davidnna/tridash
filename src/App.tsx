@@ -825,8 +825,13 @@ function App() {
 }
 
 function appHref(path: string) {
-  const appBaseUrl = String((import.meta as any).env?.VITE_TRIDASH_APP_URL || '').replace(/\/+$/, '');
-  return appBaseUrl ? `${appBaseUrl}${path}` : path;
+  // Keep public-site sign-in and sign-up links pointed at the dedicated app
+  // even if the public Render service is missing its optional environment value.
+  const appBaseUrl = String(
+    (import.meta as any).env?.VITE_TRIDASH_APP_URL || 'https://app-tridash.onrender.com'
+  ).replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${appBaseUrl}${cleanPath}`;
 }
 
 export function PublicSite() {
