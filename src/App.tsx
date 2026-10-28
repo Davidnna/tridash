@@ -780,7 +780,7 @@ function App() {
               <div className="notification-list">{notificationItems.length ? notificationItems.slice(0, 12).map(item => <button key={item.id} className={'notification-item '+(item.read ? '' : 'unread')} onClick={() => markNotificationRead(item)}><span className="notification-icon"><Bell size={15}/></span><span className="notification-copy"><strong>{item.title}</strong><span>{item.body}</span><small>{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</small></span></button>) : <div className="notification-empty"><Bell size={20}/><span>No notifications yet.</span></div>}</div>
             </div>}
           </div>
-          <button className="icon-button" title="Sign out" aria-label="Sign out" onClick={async () => { await api.post('/api/auth/logout').catch(() => {}); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); setRole('passenger'); setWorkspaceMode('rider'); rootNavigate(''); notify('Signed out'); }}><LogOut size={18} /></button>
+          <button className="icon-button" title="Sign out" aria-label="Sign out" onClick={async () => { await api.post('/api/auth/logout').catch(() => {}); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); setRole('passenger'); setWorkspaceMode('rider'); setSelectedRide(null); navigate('/login', { replace: true }); notify('Signed out'); }}><LogOut size={18} /></button>
         </div>
       </header>
       {role !== 'passenger' && menuOpen && <div className="role-menu" role="menu"><div className="eyebrow">SWITCH WORKSPACE</div>
