@@ -81,10 +81,11 @@ type Profile = {
   role: Role;
 };
 
-const navigateFromRoot = (navigate: ReturnType<typeof useNavigate>, pathname: string, target: string) => {
+// All app destinations are absolute paths. Relative navigation based on the
+// current pathname breaks when users open nested routes directly or refresh.
+const navigateFromRoot = (navigate: ReturnType<typeof useNavigate>, _pathname: string, target: string) => {
   const cleanTarget = target.replace(/^\/+/, '');
-  const depth = pathname.split('/').filter(Boolean).length;
-  navigate(cleanTarget ? '../'.repeat(depth) + cleanTarget : (depth ? '../'.repeat(depth) : '/'));
+  navigate(cleanTarget ? `/${cleanTarget}` : '/', { preventScrollReset: true });
 };
 
 const defaultProfile: Profile = {
