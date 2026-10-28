@@ -11,8 +11,7 @@ const router = Router();
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'davedozie1@gmail.com';
 
 // Tridash-owned authentication: Google Identity Services + local password credentials.
-// Keep the legacy Firebase endpoint during the staged migration; the new frontend
-// will use these endpoints after required Google/email secrets are configured.
+// Google identity is verified server-side; Tridash owns passwords, sessions, and account recovery.
 const googleClient = new OAuth2Client();
 
 async function createTridashSession(userId: string, res: any) {
@@ -129,7 +128,7 @@ router.post('/login', async (req, res) => {
     const password = String(req.body?.password || '');
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
-      return res.status(401).json({ error: 'Email or password is incorrect. If you previously used Firebase, reset your password to move your account to Tridash sign-in.' });
+      return res.status(401).json({ error: 'Email or password is incorrect. If you are moving an older account, use Forgot password to set a Tridash password.' });
     }
     if ((user as any).status === 'suspended') return res.status(403).json({ error: 'This Tridash account is suspended. Contact an administrator.' });
     if (!user.emailVerified) return res.status(403).json({ error: 'Please verify your email address before signing in.' });
@@ -203,6 +202,9 @@ router.get('/me', async (req, res) => {
 
     if (!user) {
       return res.status(401).json({ error: 'Authentication required' });
+    }
+    if ((user as any).status === 'suspended') {
+      return res.status(403).json({ error: 'This Tridash account is suspended. Contact an administrator for assistance.' });
     }
 
     const profile = await prisma.profile.findUnique({
