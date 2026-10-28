@@ -5,7 +5,7 @@ import { ws } from './api/websocket';
 import { notifications } from './api/notifications';
 import MapView, { reverseGeocode, type GeoPoint } from './MapView';
 import RequestPageMap from './RequestPageMap';
-import { firebaseAuth, onAuthStateChanged, resendVerification, refreshFirebaseUser, sendResetEmail, signInWithFirebase, signInWithGoogle, signOut, signUpWithFirebase } from './firebase';
+
 import {
   Activity, AlertTriangle, ArrowUp, Bell, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3,
   CreditCard, FileCheck2, History, Home, Landmark, LogOut, MapPin, MessageSquareWarning,
@@ -225,44 +225,29 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
-    const unsubscribe = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
-      if (!mounted) return;
-      if (!firebaseUser) {
-        setAuthUser(null);
-        setAuthReady(true);
-        return;
-      }
-      if (!firebaseUser.emailVerified) {
-        setAuthUser({ userId: firebaseUser.uid, email: firebaseUser.email || '', name: firebaseUser.displayName || '', role: 'passenger', emailVerified: false, firebaseUser });
-        setAuthReady(true);
-        return;
-      }
+    const restoreSession = async () => {
       try {
-        const idToken = await firebaseUser.getIdToken();
-        const result = await api.post('/api/auth/firebase-session', { idToken, role: 'passenger' });
-        if (!result.data?.user) throw new Error('Unable to establish Tridash session');
-        setAuthUser({ ...result.data.user, firebaseUser });
-        const nextRole = result.data.user.role || 'passenger';
-        setRole(nextRole);
-        setWorkspaceMode(nextRole === 'admin' ? 'admin' : nextRole === 'driver' ? 'driver' : 'rider');
-        // Preserve the current route when Firebase restores the session.
-        // In particular, '/' is the Rider Workspace home and must remain there
-        // for admins who deliberately switched from Admin to Rider Workspace.
-        // Redirect drivers from '/' to their dedicated workspace, but do not
-        // force admins from '/' to '/admin' on refresh.
-        const currentPath = window.location.pathname;
-        const atBareRoot = currentPath === '/' || currentPath === '';
-        if (atBareRoot && nextRole === 'driver') {
-          navigate('/driver', { replace: true });
+        const result = await api.get('/api/auth/me');
+        if (!mounted) return;
+        if (result.data?.user) {
+          setAuthUser(result.data.user);
+          const nextRole = result.data.user.role || 'passenger';
+          setRole(nextRole);
+          setWorkspaceMode(nextRole === 'admin' ? 'admin' : nextRole === 'driver' ? 'driver' : 'rider');
+          if (result.data.profile) setProfile(result.data.profile);
+          const path = window.location.pathname;
+          if ((path === '/' || path === '') && nextRole === 'driver') navigate('/driver', { replace: true });
+        } else {
+          setAuthUser(null);
         }
-        if (result.data.profile) setProfile(result.data.profile);
-      } catch (error: any) {
-        if (mounted) notify(error?.message || 'We could not establish your Tridash session.');
+      } catch {
+        if (mounted) setAuthUser(null);
       } finally {
         if (mounted) setAuthReady(true);
       }
-    });
-    return () => { mounted = false; unsubscribe(); };
+    };
+    void restoreSession();
+    return () => { mounted = false; };
   }, []);
 
   const loadNotifications = async () => {
@@ -398,101 +383,98 @@ function App() {
     };
   }, [activeRide?.id, activeRide?.driverId]);
 
-  const syncFirebaseSession = async (firebaseUser: any, accountRole: 'passenger' | 'driver' = 'passenger') => {
-    const idToken = await firebaseUser.getIdToken();
-    const result = await api.post('/api/auth/firebase-session', { idToken, role: accountRole });
-    if (!result.data?.user) throw new Error('Unable to establish Tridash session');
-    setAuthUser({ ...result.data.user, firebaseUser });
-    const nextRole = result.data.user.role || accountRole;
-    setRole(nextRole);
-    setWorkspaceMode(nextRole === 'admin' ? 'admin' : nextRole === 'driver' ? 'driver' : 'rider');
-    setTab(nextRole === 'admin' ? 'admin' : 'home');
-    if (result.data.profile) setProfile(result.data.profile);
-    return result.data.user;
+  const authErrorMessage = (error: any) => {
+    const message = String(error?.message || '');
+    if (/incorrect|invalid credential|password/i.test(message)) return message || 'The email or password is incorrect.';
+    if (/already exists|already linked/i.test(message)) return message;
+    if (/verify/i.test(message)) return message;
+    return message || 'Authentication could not be completed. Please try again.';
   };
 
-  const authErrorMessage = (error: any) => {
-    const code = String(error?.code || '');
-    if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) return 'The email or password is incorrect.';
-    if (code.includes('email-already-in-use')) return 'An account already exists with this email. Try signing in instead.';
-    if (code.includes('weak-password')) return 'Choose a stronger password. Firebase requires a valid password for the account.';
-    if (code.includes('invalid-email')) return 'Enter a valid email address.';
-    if (code.includes('too-many-requests')) return 'Too many attempts. Please wait a moment and try again.';
-    if (code.includes('operation-not-allowed')) return 'Email/password authentication is not enabled in Firebase.';
-    return error?.message || 'Authentication could not be completed.';
+  const acceptSession = (result: any) => {
+    if (!result.data?.user) throw new Error('Tridash could not establish your session.');
+    const user = result.data.user;
+    setAuthUser(user);
+    setRole(user.role || 'passenger');
+    setWorkspaceMode(user.role === 'admin' ? 'admin' : user.role === 'driver' ? 'driver' : 'rider');
+    if (result.data.profile) setProfile(result.data.profile);
+    setTab(user.role === 'admin' ? 'admin' : 'home');
+    return user;
   };
 
   const signIn = async (email: string, password: string) => {
     setAuthBusy(true);
     try {
-      const firebaseUser = await signInWithFirebase(email, password);
-      if (!firebaseUser.emailVerified) {
-        setAuthUser({ userId: firebaseUser.uid, email: firebaseUser.email || email, name: firebaseUser.displayName || '', role: 'passenger', emailVerified: false, firebaseUser });
-        notify('Please verify your email before entering Tridash.');
-        return true;
-      }
-      await syncFirebaseSession(firebaseUser);
+      const result = await api.post('/api/auth/login', { email, password });
+      acceptSession(result);
       notify('Welcome back to Tridash');
       return true;
     } catch (error: any) {
       notify(authErrorMessage(error));
       return false;
-    } finally {
-      setAuthBusy(false);
-    }
+    } finally { setAuthBusy(false); }
   };
 
   const signUp = async (name: string, email: string, password: string, accountRole: 'passenger' | 'driver') => {
     setAuthBusy(true);
     try {
-      const firebaseUser = await signUpWithFirebase(name, email, password);
-      setAuthUser({ userId: firebaseUser.uid, email: firebaseUser.email || email, name: firebaseUser.displayName || name, role: accountRole, emailVerified: false, firebaseUser });
-      setRole(accountRole);
-      notify('Account created. Check your email to verify it.');
+      const result = await api.post('/api/auth/signup', { name, email, password, role: accountRole });
+      notify(result.data?.message || 'Account created. Check your inbox to verify your email.');
       return true;
     } catch (error: any) {
       notify(authErrorMessage(error));
       return false;
-    } finally {
-      setAuthBusy(false);
-    }
+    } finally { setAuthBusy(false); }
   };
 
-  const signInGoogle = async () => {
+  const signInGoogle = async (credential: string) => {
     setAuthBusy(true);
     try {
-      const firebaseUser = await signInWithGoogle();
-      // signInWithGoogle returns null when it falls back to a full-page
-      // redirect: the page is navigating away, so there is nothing to report.
-      if (!firebaseUser) return true;
-      if (!firebaseUser.emailVerified) {
-        setAuthUser({ userId: firebaseUser.uid, email: firebaseUser.email || '', name: firebaseUser.displayName || '', role: 'passenger', emailVerified: false, firebaseUser });
-        notify('Please verify your email before entering Tridash.');
-        return true;
-      }
-      await syncFirebaseSession(firebaseUser);
+      const result = await api.post('/api/auth/google', { credential });
+      acceptSession(result);
       notify('Signed in with Google');
       return true;
     } catch (error: any) {
       notify(authErrorMessage(error));
       return false;
-    } finally {
-      setAuthBusy(false);
-    }
+    } finally { setAuthBusy(false); }
   };
 
   const resetPassword = async (email: string) => {
     setAuthBusy(true);
     try {
-      await sendResetEmail(email);
-      notify('Password reset email sent. Check your inbox.');
+      const result = await api.post('/api/auth/forgot-password', { email });
+      notify(result.data?.message || 'If an account exists for that email, reset instructions will be sent.');
+      return true;
+    } catch (error: any) {
+      // Keep the response generic to avoid revealing whether an account exists.
+      notify('If an account exists for that email, reset instructions will be sent.');
+      return true;
+    } finally { setAuthBusy(false); }
+  };
+
+  const completePasswordReset = async (token: string, password: string) => {
+    setAuthBusy(true);
+    try {
+      const result = await api.post('/api/auth/reset-password', { token, password });
+      notify(result.data?.message || 'Password updated. You can now sign in.');
       return true;
     } catch (error: any) {
       notify(authErrorMessage(error));
       return false;
-    } finally {
-      setAuthBusy(false);
-    }
+    } finally { setAuthBusy(false); }
+  };
+
+  const verifyEmailLink = async (token: string) => {
+    setAuthBusy(true);
+    try {
+      const result = await api.post('/api/auth/verify-email', { token });
+      notify(result.data?.message || 'Email verified. You can now sign in.');
+      return true;
+    } catch (error: any) {
+      notify(authErrorMessage(error));
+      return false;
+    } finally { setAuthBusy(false); }
   };
 
   const saveProfile = async (next: Profile) => {
@@ -756,8 +738,7 @@ function App() {
   if (deploymentMode !== 'app' && isPublicContentPath && (!authUser || location.pathname !== '/')) return <PublicSite />;
   if (!authUser && !isPublicContentPath && !isAuthPath && !isPrivateAppPath) return <NotFoundPage />;
   if (!authReady || (Boolean(authUser) && loading)) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Preparing your workspace…</p></div>;
-  if (!authUser) return <AuthScreen busy={authBusy} onSignIn={signIn} onSignUp={signUp} onGoogleSignIn={signInGoogle} onResetPassword={resetPassword} />;
-  if (!authUser.emailVerified) return <VerificationScreen busy={authBusy} firebaseUser={authUser.firebaseUser} onVerified={async (refreshed: any) => { setAuthBusy(true); try { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } finally { setAuthBusy(false); } }} onRefresh={async () => { setAuthBusy(true); try { const refreshed = await refreshFirebaseUser(authUser.firebaseUser); if (refreshed?.emailVerified) { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } else { notify('Your email is not verified yet. Open the verification link, then try again.'); } } catch (error: any) { notify(error?.message || 'We could not refresh your verification status.'); } finally { setAuthBusy(false); } }} onResend={async () => { try { await resendVerification(authUser.firebaseUser); notify('Verification email sent again. Check spam or junk if you do not see it.'); } catch (error: any) { notify(error?.message || 'Unable to resend the verification email.'); } }} onSignOut={async () => { await api.post('/api/auth/logout').catch(() => {}); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); }} />;
+  if (!authUser) return <AuthScreen busy={authBusy} onSignIn={signIn} onSignUp={signUp} onGoogleSignIn={signInGoogle} onResetPassword={resetPassword} onCompletePasswordReset={completePasswordReset} onVerifyEmail={verifyEmailLink} />;
   if (isAuthPath) return <Navigate replace to={authUser.role === 'admin' ? '/admin' : authUser.role === 'driver' ? '/driver' : '/'} />;
 
 
@@ -788,7 +769,7 @@ function App() {
               <div className="notification-list">{notificationItems.length ? notificationItems.slice(0, 12).map(item => <button key={item.id} className={'notification-item '+(item.read ? '' : 'unread')} onClick={() => markNotificationRead(item)}><span className="notification-icon"><Bell size={15}/></span><span className="notification-copy"><strong>{item.title}</strong><span>{item.body}</span><small>{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</small></span></button>) : <div className="notification-empty"><Bell size={20}/><span>No notifications yet.</span></div>}</div>
             </div>}
           </div>
-          <button className="icon-button" title="Sign out" aria-label="Sign out" onClick={async () => { await api.post('/api/auth/logout').catch(() => {}); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); setRole('passenger'); setWorkspaceMode('rider'); setSelectedRide(null); navigate('/login', { replace: true }); notify('Signed out'); }}><LogOut size={18} /></button>
+          <button className="icon-button" title="Sign out" aria-label="Sign out" onClick={async () => { await api.post('/api/auth/logout').catch(() => {});  setAuthUser(null); setAuthReady(true); setRole('passenger'); setWorkspaceMode('rider'); setSelectedRide(null); navigate('/login', { replace: true }); notify('Signed out'); }}><LogOut size={18} /></button>
         </div>
       </header>
       {role !== 'passenger' && menuOpen && <div className="role-menu" role="menu"><div className="eyebrow">SWITCH WORKSPACE</div>
@@ -1036,7 +1017,15 @@ function RideRoute({ rides, setSelectedRide, payRide, paymentBusy, driverLocatio
   return <RideDetail ride={ride} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} backTarget={backTarget} viewAsDriver={viewAsDriver} />;
 }
 
-function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword }: { busy: boolean; onSignIn: (email: string, password: string) => Promise<boolean>; onSignUp: (name: string, email: string, password: string, role: 'passenger' | 'driver') => Promise<boolean>; onGoogleSignIn: () => Promise<boolean>; onResetPassword: (email: string) => Promise<boolean> }) {
+function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword, onCompletePasswordReset, onVerifyEmail }: {
+  busy: boolean;
+  onSignIn: (email: string, password: string) => Promise<boolean>;
+  onSignUp: (name: string, email: string, password: string, role: 'passenger' | 'driver') => Promise<boolean>;
+  onGoogleSignIn: (credential: string) => Promise<boolean>;
+  onResetPassword: (email: string) => Promise<boolean>;
+  onCompletePasswordReset: (token: string, password: string) => Promise<boolean>;
+  onVerifyEmail: (token: string) => Promise<boolean>;
+}) {
   const authLocation = useLocation();
   const [mode, setMode] = useState<'signin' | 'signup'>(authLocation.pathname === '/signup' ? 'signup' : 'signin');
   const [name, setName] = useState('');
@@ -1044,89 +1033,117 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword 
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'passenger' | 'driver'>(new URLSearchParams(authLocation.search).get('role') === 'driver' ? 'driver' : 'passenger');
   const [errorText, setErrorText] = useState('');
+  const [noticeText, setNoticeText] = useState('');
   const [forgotMode, setForgotMode] = useState(false);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [linkMode, setLinkMode] = useState<'verify' | 'reset' | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setMode(authLocation.pathname === '/signup' ? 'signup' : 'signin');
-    const requestedRole = new URLSearchParams(authLocation.search).get('role');
-    setRole(requestedRole === 'driver' ? 'driver' : 'passenger');
+    const params = new URLSearchParams(authLocation.search);
+    setRole(params.get('role') === 'driver' ? 'driver' : 'passenger');
     setErrorText('');
+    setNoticeText('');
     setForgotMode(false);
+    const resetToken = params.get('reset-password');
+    const verifyToken = params.get('verify-email');
+    if (resetToken) setLinkMode('reset');
+    else if (verifyToken) setLinkMode('verify');
+    else setLinkMode(null);
+    if (verifyToken) {
+      setLinkBusy(true);
+      void onVerifyEmail(verifyToken).then(ok => {
+        setNoticeText(ok ? 'Your email is verified. You can now sign in.' : 'This verification link is invalid or expired. Request a new account verification email.');
+        if (ok) window.history.replaceState({}, '', authLocation.pathname);
+      }).finally(() => setLinkBusy(false));
+    }
   }, [authLocation.pathname, authLocation.search]);
+
+  useEffect(() => {
+    if (linkMode || forgotMode || !googleButtonRef.current) return;
+    const clientId = String((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || '');
+    if (!clientId) {
+      setNoticeText('Google sign-in will be available after the Google OAuth client ID is configured.');
+      return;
+    }
+    let cancelled = false;
+    const render = () => {
+      const google = (window as any).google;
+      if (cancelled || !google?.accounts?.id || !googleButtonRef.current) return;
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response: any) => {
+          if (!response?.credential) { setErrorText('Google did not return a valid sign-in credential.'); return; }
+          const ok = await onGoogleSignIn(response.credential);
+          if (!ok) setErrorText('Google sign-in could not be completed. Please try again.');
+        },
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+      googleButtonRef.current.innerHTML = '';
+      google.accounts.id.renderButton(googleButtonRef.current, { type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', width: Math.min(360, googleButtonRef.current.clientWidth || 320) });
+    };
+    const existing = document.querySelector<HTMLScriptElement>('script[data-google-identity="true"]');
+    if ((window as any).google?.accounts?.id) render();
+    else if (existing) existing.addEventListener('load', render, { once: true });
+    else {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.dataset.googleIdentity = 'true';
+      script.onload = render;
+      script.onerror = () => setErrorText('Google sign-in could not load. Check your connection and try again.');
+      document.head.appendChild(script);
+    }
+    return () => { cancelled = true; };
+  }, [linkMode, forgotMode, mode, role]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setErrorText('');
-    if (mode === 'signup' && name.trim().length < 2) {
-      setErrorText('Enter your full name.');
-      return;
-    }
-    if (!email.trim()) {
-      setErrorText('Enter your email address.');
-      return;
-    }
-    if (password.length < 8) {
-      setErrorText('Password must be at least 8 characters.');
-      return;
-    }
+    setNoticeText('');
+    if (mode === 'signup' && name.trim().length < 2) { setErrorText('Enter your full name.'); return; }
+    if (!email.trim()) { setErrorText('Enter your email address.'); return; }
+    if (password.length < (mode === 'signin' ? 1 : 10)) { setErrorText(mode === 'signin' ? 'Enter your password.' : 'Use a password with at least 10 characters.'); return; }
     const ok = mode === 'signin'
       ? await onSignIn(email.trim(), password)
       : await onSignUp(name.trim(), email.trim(), password, role);
     if (!ok) setErrorText(mode === 'signin' ? 'We could not sign you in with those details.' : 'We could not create the account. Please check the details and try again.');
+    else if (mode === 'signup') {
+      setMode('signin');
+      setPassword('');
+      setNoticeText('Account created. Check your inbox for a Tridash verification email before signing in.');
+    }
   };
 
-  if (forgotMode) return <div className="auth-shell"><div className="auth-panel"><div className="auth-brand"><span className="brand-mark"><Zap size={18} /></span><strong>tridash</strong></div><div className="eyebrow">ACCOUNT RECOVERY</div><h1>Reset your password.</h1><p className="auth-intro">Firebase will send a secure password-reset email to your address.</p><form className="auth-form" onSubmit={async event => { event.preventDefault(); if (!email.trim()) { setErrorText('Enter your email address.'); return; } await onResetPassword(email.trim()); }}><label>Email address<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></label>{errorText && <div className="auth-error"><AlertTriangle size={16} />{errorText}</div>}<button className="primary-button full auth-submit" disabled={busy}>{busy ? 'Sending…' : 'Send reset email'}</button><button type="button" className="secondary-button full" onClick={() => { setForgotMode(false); setErrorText(''); }}>Back to sign in</button></form></div></div>;
+  if (linkMode === 'verify') return <div className="auth-shell"><div className="auth-panel"><div className="auth-brand"><span className="brand-mark"><Zap size={18}/></span><strong>tridash</strong></div><div className="eyebrow">EMAIL VERIFICATION</div><h1>{linkBusy ? 'Verifying your email…' : 'Check your email status.'}</h1><p className="auth-intro">{noticeText || 'We are verifying your email link.'}</p><Link className="primary-button full auth-submit" to="/login">Continue to sign in</Link></div></div>;
 
-  return <div className="auth-shell">
-    <div className="auth-panel">
-      <Link className="auth-brand auth-brand-link" to="/" aria-label="Tridash home"><span className="brand-mark"><Zap size={18} /></span><strong>tridash</strong></Link>
-      <div className="eyebrow">SAFE RIDE ACCESS</div>
-      <h1>{mode === 'signin' ? 'Welcome back.' : 'Create your Tridash account.'}</h1>
-      <p className="auth-intro">Sign in directly to Tridash with Firebase. You do not need an AppDeploy account.</p>
-      <div className="auth-switch"><button type="button" className={mode === 'signin' ? 'active' : ''} onClick={() => { setMode('signin'); setErrorText(''); }}>Sign in</button><button type="button" className={mode === 'signup' ? 'active' : ''} onClick={() => { setMode('signup'); setErrorText(''); }}>Create account</button></div>
-      <button type="button" className="secondary-button full" disabled={busy} onClick={async () => { const ok = await onGoogleSignIn(); if (!ok) setErrorText('Google sign-in could not be completed.'); }}><span>G</span> Continue with Google</button>
-      <div className="auth-divider"><span>or use email</span></div>
-      <form className="auth-form" onSubmit={submit}>
-        {mode === 'signup' && <label>Full name<input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" autoComplete="name" /></label>}
-        <label>Email address<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></label>
-        <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /></label>
-        {mode === 'signup' && <label>Account type<select value={role} onChange={e => setRole(e.target.value as 'passenger' | 'driver')}><option value="passenger">Passenger</option><option value="driver">Driver</option></select></label>}
-        {errorText && <div className="auth-error"><AlertTriangle size={16} />{errorText}</div>}
-        <button className="primary-button full auth-submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'signin' ? 'Sign in to Tridash' : 'Create Tridash account'}</button>
-      </form>
-      {mode === 'signin' && <button className="text-button" type="button" onClick={() => { setForgotMode(true); setErrorText(''); }}>Forgot password?</button>}
-      <div className="auth-note"><ShieldCheck size={16} /><span>Firebase handles your password, sign-in and account recovery. Tridash never stores your password.</span></div>
-    </div>
-  </div>;
-}
+  if (linkMode === 'reset') return <div className="auth-shell"><div className="auth-panel"><Link className="auth-brand auth-brand-link" to="/"><span className="brand-mark"><Zap size={18}/></span><strong>tridash</strong></Link><div className="eyebrow">ACCOUNT RECOVERY</div><h1>Choose a new password.</h1><p className="auth-intro">Create a new password for your Tridash account.</p><form className="auth-form" onSubmit={async event => { event.preventDefault(); const token = new URLSearchParams(authLocation.search).get('reset-password') || ''; if (resetPasswordValue.length < 10) { setErrorText('Use a password with at least 10 characters.'); return; } const ok = await onCompletePasswordReset(token, resetPasswordValue); if (ok) { window.history.replaceState({}, '', '/login'); setLinkMode(null); setMode('signin'); setNoticeText('Password updated. You can now sign in.'); } }}><label>New password<input type="password" value={resetPasswordValue} onChange={e=>setResetPasswordValue(e.target.value)} autoComplete="new-password" minLength={10} required /></label>{errorText && <div className="auth-error"><AlertTriangle size={16}/>{errorText}</div>}<button className="primary-button full auth-submit" disabled={busy}>{busy ? 'Updating…' : 'Update password'}</button></form></div></div>;
 
-function VerificationScreen({ busy, firebaseUser, onVerified, onRefresh, onResend, onSignOut }: { busy: boolean; firebaseUser: any; onVerified: (refreshed: any) => Promise<void>; onRefresh: () => Promise<void>; onResend: () => Promise<void>; onSignOut: () => Promise<void> }) {
-  const [checking, setChecking] = useState(false);
-  const onVerifiedRef = useRef(onVerified);
-  onVerifiedRef.current = onVerified;
-  const [resending, setResending] = useState(false);
+  if (forgotMode) return <div className="auth-shell"><div className="auth-panel"><div className="auth-brand"><span className="brand-mark"><Zap size={18}/></span><strong>tridash</strong></div><div className="eyebrow">ACCOUNT RECOVERY</div><h1>Reset your password.</h1><p className="auth-intro">We’ll send a secure password-reset link if an account matches that email address.</p><form className="auth-form" onSubmit={async event => { event.preventDefault(); if (!email.trim()) { setErrorText('Enter your email address.'); return; } const ok = await onResetPassword(email.trim()); if (ok) setNoticeText('If an account exists for that email, reset instructions will be sent.'); }}><label>Email address<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required /></label>{errorText && <div className="auth-error"><AlertTriangle size={16}/>{errorText}</div>}{noticeText && <p className="auth-note">{noticeText}</p>}<button className="primary-button full auth-submit" disabled={busy}>{busy ? 'Sending…' : 'Send reset email'}</button><button type="button" className="secondary-button full" onClick={()=>{setForgotMode(false);setErrorText('');setNoticeText('');}}>Back to sign in</button></form></div></div>;
 
-  useEffect(() => {
-    let cancelled = false;
-    const check = async () => {
-      if (cancelled || busy || !firebaseUser) return;
-      setChecking(true);
-      try {
-        const refreshed = await refreshFirebaseUser(firebaseUser);
-        if (!cancelled && refreshed?.emailVerified) await onVerifiedRef.current(refreshed);
-      } catch {}
-      if (!cancelled) setChecking(false);
-    };
-    const interval = window.setInterval(check, 4000);
-    return () => { cancelled = true; window.clearInterval(interval); };
-  }, [firebaseUser, busy]);
-
-  const handleResend = async () => {
-    setResending(true);
-    try { await onResend(); } finally { setResending(false); }
-  };
-
-  return <div className="auth-shell"><div className="auth-panel"><div className="auth-brand"><span className="brand-mark"><Zap size={18} /></span><strong>tridash</strong></div><div className="eyebrow">VERIFY YOUR EMAIL</div><h1>Check your inbox.</h1><p className="auth-intro">We sent a verification link to <strong>{firebaseUser?.email || 'your email address'}</strong>. Open it, then return here. Tridash checks automatically every few seconds.</p><button className="primary-button full" disabled={busy || checking} onClick={onRefresh}>{busy || checking ? 'Checking verification…' : 'I have verified my email'}</button><button className="secondary-button full" disabled={busy || resending} onClick={handleResend}>{resending ? 'Sending…' : 'Resend verification email'}</button><button className="text-button" disabled={busy || resending} onClick={onSignOut}>Sign out</button><div className="auth-note"><ShieldCheck size={16} /><span>Check your spam or junk folder if the message is missing. Verified email is required before Tridash can open protected ride and safety data.</span></div></div></div>;
+  return <div className="auth-shell"><div className="auth-panel">
+    <Link className="auth-brand auth-brand-link" to="/" aria-label="Tridash home"><span className="brand-mark"><Zap size={18}/></span><strong>tridash</strong></Link>
+    <div className="eyebrow">SAFE RIDE ACCESS</div><h1>{mode === 'signin' ? 'Welcome back.' : 'Create your Tridash account.'}</h1>
+    <p className="auth-intro">Sign in securely to Tridash. Your account and session are managed by Tridash.</p>
+    <div className="auth-switch"><button type="button" className={mode === 'signin' ? 'active' : ''} onClick={()=>{setMode('signin');setErrorText('');setNoticeText('');}}>Sign in</button><button type="button" className={mode === 'signup' ? 'active' : ''} onClick={()=>{setMode('signup');setErrorText('');setNoticeText('');}}>Create account</button></div>
+    <div className="google-signin-wrap"><div ref={googleButtonRef} /></div>
+    <div className="auth-divider"><span>or use email</span></div>
+    <form className="auth-form" onSubmit={submit}>
+      {mode === 'signup' && <label>Full name<input value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" autoComplete="name" required /></label>}
+      <label>Email address<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required /></label>
+      <label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder={mode === 'signin' ? 'Your password' : 'At least 10 characters'} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} minLength={mode === 'signup' ? 10 : undefined} required /></label>
+      {mode === 'signup' && <label>Account type<select value={role} onChange={e=>setRole(e.target.value as 'passenger' | 'driver')}><option value="passenger">Passenger</option><option value="driver">Driver</option></select></label>}
+      {errorText && <div className="auth-error"><AlertTriangle size={16}/>{errorText}</div>}
+      {noticeText && <p className="auth-note">{noticeText}</p>}
+      <button className="primary-button full auth-submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'signin' ? 'Sign in to Tridash' : 'Create Tridash account'}</button>
+    </form>
+    {mode === 'signin' && <button className="text-button" type="button" onClick={()=>{setForgotMode(true);setErrorText('');setNoticeText('');}}>Forgot password?</button>}
+    <div className="auth-note"><ShieldCheck size={16}/><span>Tridash protects your account and sends verification and recovery emails from our own branded email service.</span></div>
+  </div></div>;
 }
 
 function PassengerWorkspace(props: any) {
