@@ -380,17 +380,6 @@ function App() {
     };
   }, [activeRide?.id, activeRide?.driverId]);
 
-  const authErrorMessage = (error: any) => {
-    const code = String(error?.code || '');
-    if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) return 'The email or password is incorrect.';
-    if (code.includes('email-already-in-use')) return 'An account already exists with this email. Try signing in instead.';
-    if (code.includes('weak-password')) return 'Choose a stronger password. Firebase requires a valid password for the account.';
-    if (code.includes('invalid-email')) return 'Enter a valid email address.';
-    if (code.includes('too-many-requests')) return 'Too many attempts. Please wait a moment and try again.';
-    if (code.includes('operation-not-allowed')) return 'Email/password authentication is not enabled in Firebase.';
-    return error?.message || 'Authentication could not be completed.';
-  };
-
   const signIn = async (email: string, password: string) => {
     setAuthBusy(true);
     try {
@@ -724,7 +713,7 @@ function App() {
   const isPrivateAppPath = /^\/(request|trips|safety|profile|driver|admin)(\/|$)/.test(location.pathname);
   const deploymentMode = String((import.meta as any).env?.VITE_TRIDASH_DEPLOYMENT || 'combined');
   if (isSharedTripPath) return <Routes><Route path="/shared-trip/:token" element={<SharedTripRoute />} /><Route path="*" element={<NotFoundPage />} /></Routes>;
-  // On the root URL, wait for Firebase to restore the session before choosing
+  // On the root URL, wait for the Tridash session to restore before choosing
   // between the public landing page and the authenticated user's dashboard.
   // This prevents a signed-in user from briefly seeing the public site on refresh.
   if (location.pathname === '/' && !authReady) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Checking your secure session…</p></div>;
@@ -1045,8 +1034,8 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword,
       setErrorText('Enter your email address.');
       return;
     }
-    if (password.length < (onResetTokenMode ? 10 : 8)) {
-      setErrorText(onResetTokenMode ? 'Password must be at least 10 characters.' : 'Password must be at least 8 characters.');
+    if (password.length < 10) {
+      setErrorText('Password must be at least 10 characters.');
       return;
     }
     const ok = onResetTokenMode
@@ -1074,7 +1063,7 @@ function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword,
       <form className="auth-form" onSubmit={submit}>
         {mode === 'signup' && <label>Full name<input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" autoComplete="name" /></label>}
         <label>Email address<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></label>
-        <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /></label>
+        <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 10 characters" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /></label>
         {mode === 'signup' && <label>Account type<select value={role} onChange={e => setRole(e.target.value as 'passenger' | 'driver')}><option value="passenger">Passenger</option><option value="driver">Driver</option></select></label>}
         {errorText && <div className="auth-error"><AlertTriangle size={16} />{errorText}</div>}
         <button className="primary-button full auth-submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'signin' ? 'Sign in to Tridash' : 'Create Tridash account'}</button>
@@ -1659,7 +1648,7 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
     {section==='rides' && <Panel title="Ride management" eyebrow="ALL RIDES"><div className="search-box"><Search size={17}/><input placeholder="Search passenger, route or status" value={search} onChange={e=>setSearch(e.target.value)}/></div>{filteredRides.map((r: Ride)=><RideAdminRow key={r.id} ride={r}/>)}</Panel>}
     {section==='reports' && <Panel title="Complaints & incidents" eyebrow="SAFETY QUEUE"><div className="incident-demo"><AlertTriangle size={20}/><div><strong>Safety queue</strong><p>Review SOS events, complaints and operational reports.</p></div></div><textarea value={reportText} onChange={e=>setReportText(e.target.value)} placeholder="Incident details…" /><button className="primary-button" disabled={!reportText.trim() || adminLoading} onClick={async()=>{if(!reportText.trim())return;try{await api.post('/api/incidents',{type:'admin-report',message:reportText.trim()});setReportText('');await loadAdminData();notify('Incident recorded')}catch{notify('Incident could not be recorded')}}}>Record incident</button>{adminLoading?<p className="muted">Loading incidents…</p>:incidents.map(i=><div className="ride-row" key={i.id}><div><strong>{i.type||'Incident'}</strong><span>{i.message||'No details'} · {i.createdAt ? new Date(i.createdAt).toLocaleString() : ''}</span></div><span className={'ride-status '+String(i.severity||'normal').toLowerCase()}>{i.severity||'normal'}</span></div>)}</Panel>}
     {section==='payments' && <Panel title="Payment records" eyebrow="FINANCIAL AUDIT"><p className="muted">All Tridash passenger payments are processed online through Paystack and verified server-side before a ride is marked paid.</p>{adminLoading?<p className="muted">Loading payments…</p>:payments.map(p=><div className="ride-row" key={p.id}><div><strong>{p.method||'Payment'}</strong><span>Ride {p.rideId||'—'} · ₦{Number(p.amount||0).toLocaleString()}</span></div><span className={'ride-status '+String(p.status||'Pending').toLowerCase()}>{p.status||'Pending'}</span></div>)}</Panel>}
-    {section==='settings' && <Panel title="Platform settings" eyebrow="CONFIGURATION"><div className="settings-row"><Shield size={19}/><div><strong>Safety policy</strong><span>SOS events are stored against trip records.</span></div><CheckCircle2 size={18}/></div><div className="settings-row"><CreditCard size={19}/><div><strong>Payments</strong><span>All passenger payments use Paystack online checkout and server-side verification.</span></div><CheckCircle2 size={18}/></div><div className="settings-row"><Bell size={19}/><div><strong>Notifications</strong><span>Ride and safety notification delivery is enabled through the platform.</span></div><CheckCircle2 size={18}/></div><div className="danger-panel"><div><strong>Start fresh</strong><span>Delete every Tridash and Firebase account except the superadmin account. This is irreversible.</span></div><button className="secondary-button danger-button" onClick={async()=>{const first=await askConfirm('Delete other users?','This will delete every Tridash and Firebase account except the protected superadmin account.','Delete accounts');if(!first)return;const second=await askConfirm('Final confirmation','This action cannot be undone. Continue deleting the other accounts?','Yes, delete them');if(!second)return;try{const res=await api.post('/api/admin/reset-users');notify((res.data?.deletedFirebaseUsers||0)+' other user account(s) deleted.');setUsers([]);}catch(error:any){notify(error?.message||'User reset could not be completed.');}}}>Delete other users</button></div></Panel>}
+    {section==='settings' && <Panel title="Platform settings" eyebrow="CONFIGURATION"><div className="settings-row"><Shield size={19}/><div><strong>Safety policy</strong><span>SOS events are stored against trip records.</span></div><CheckCircle2 size={18}/></div><div className="settings-row"><CreditCard size={19}/><div><strong>Payments</strong><span>All passenger payments use Paystack online checkout and server-side verification.</span></div><CheckCircle2 size={18}/></div><div className="settings-row"><Bell size={19}/><div><strong>Notifications</strong><span>Ride and safety notification delivery is enabled through the platform.</span></div><CheckCircle2 size={18}/></div><div className="danger-panel"><div><strong>Start fresh</strong><span>Delete every Tridash account except the protected superadmin account. This is irreversible.</span></div><button className="secondary-button danger-button" onClick={async()=>{const first=await askConfirm('Delete other users?','This will delete every Tridash account except the protected superadmin account.','Delete accounts');if(!first)return;const second=await askConfirm('Final confirmation','This action cannot be undone. Continue deleting the other accounts?','Yes, delete them');if(!second)return;try{const res=await api.post('/api/admin/reset-users');notify((res.data?.deletedFirebaseUsers||0)+' other user account(s) deleted.');setUsers([]);}catch(error:any){notify(error?.message||'User reset could not be completed.');}}}>Delete other users</button></div></Panel>}
   </section></div>;
 }
 function Stat({label,value,icon:Icon}:any){return <div className="stat-card"><Icon size={19}/><span>{label}</span><strong>{value}</strong></div>}
