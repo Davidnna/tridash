@@ -1133,31 +1133,196 @@ function PassengerWorkspace(props: any) {
     const navigate = useNavigate();
     const location = useLocation();
     const { tab, setTab, profile, activeRide, myTrips, requestRide, cancelRide, sendSOS, shareTrip, payRide, paymentBusy, saveProfile, profileBusy, notify, showRating, setShowRating, rating, setRating, review, setReview, submitRating, notificationsEnabled, enableNotifications, selectedRide, setSelectedRide, driverLocation } = props;
+    const passengerTrips: Ride[] = Array.isArray(myTrips) ? myTrips : [];
+    const recentTrips = passengerTrips
+        .filter(ride => !activeRide || ride.id !== activeRide.id)
+        .sort((first, second) => {
+            const firstDate = first.requestedAt ? Date.parse(first.requestedAt) : 0;
+            const secondDate = second.requestedAt ? Date.parse(second.requestedAt) : 0;
+            return (Number.isFinite(secondDate) ? secondDate : 0) - (Number.isFinite(firstDate) ? firstDate : 0);
+        })
+        .slice(0, 3);
+    const completedTrips = passengerTrips.filter(ride => ride.status === 'Completed').length;
+    const openTrip = (ride: Ride) => {
+        setSelectedRide(ride);
+        navigateFromRoot(navigate, location.pathname, 'trips/' + encodeURIComponent(ride.id) + '?from=home');
+    };
+
     if (tab === 'request') return <RequestPageMap requestRide={requestRide} setTab={setTab} notify={notify} profile={profile} />;
     if (selectedRide) return <RideDetail ride={selectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} />;
     if (tab === 'trips') return <TripsPage trips={myTrips} setSelectedRide={setSelectedRide} />;
     if (tab === 'safety') return <SafetyPage activeRide={activeRide} profile={profile} sendSOS={sendSOS} shareTrip={shareTrip} setTab={setTab} notify={notify} />;
     if (tab === 'profile') return <ProfilePage profile={profile} saveProfile={saveProfile} profileBusy={profileBusy} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} setTab={setTab} />;
+
     return (
-        <div className="mobile-frame passenger-home">
-            <section className="hero-copy"><div className="eyebrow">PASSENGER</div><h1>Good morning,<br /><strong>{profile.name || 'there'} 👋</strong></h1><p>Every ride, logged. Every driver, checked.</p></section>
-            {activeRide ? <ActiveRideCard ride={activeRide} driverLocation={driverLocation} onClick={() => { setSelectedRide(activeRide); navigateFromRoot(navigate, location.pathname, 'trips/' + encodeURIComponent(activeRide.id) + '?from=home'); }} /> :
-                <section className="empty-card"><div className="empty-icon"><CarFront size={23} /></div><h2>No active ride</h2><p>Request a verified tricycle when you are ready to go.</p><button className="primary-button" onClick={() => setTab('request')}>Request a ride <ChevronRight size={18} /></button></section>}
-            <section className="home-feature-grid" aria-label="Passenger safety and ride features">
-                <Feature icon={<ShieldCheck />} title="ID checked" text="Drivers are verified before the first ride." />
-                <Feature icon={<ShieldAlert />} title="SOS on every trip" text="Safety tools stay one tap away." />
-                <Feature icon={<Navigation />} title="Trip sharing" text="Share your current journey with someone you trust." />
-                <Feature icon={<CreditCard />} title="Simple payments" text="Track payment status and method per trip." />
+        <div className="mobile-frame passenger-home passenger-dashboard">
+            <section className="hero-copy passenger-welcome">
+                <div className="passenger-welcome-copy">
+                    <div className="eyebrow">PASSENGER DASHBOARD</div>
+                    <h1>Good to see you,<br /><strong>{profile.name || 'there'}</strong></h1>
+                    <p>Your next local journey starts with a clear pickup, destination and driver details.</p>
+                    <div className="passenger-welcome-actions">
+                        <button className="primary-button" onClick={() => setTab('request')}>
+                            <CarFront size={17} aria-hidden="true" /> Book a ride
+                        </button>
+                        <button className="passenger-hero-link" onClick={() => setTab('trips')}>
+                            <History size={17} aria-hidden="true" /> View trip history
+                        </button>
+                    </div>
+                </div>
+                <div className="passenger-welcome-art" aria-hidden="true">
+                    <div className="passenger-welcome-orbit passenger-welcome-orbit-one" />
+                    <div className="passenger-welcome-orbit passenger-welcome-orbit-two" />
+                    <div className="passenger-welcome-route-card">
+                        <div className="passenger-welcome-route-heading"><span className="passenger-welcome-route-mark"><Zap size={13} /></span><span>YOUR NEXT JOURNEY</span></div>
+                        <div className="passenger-welcome-route-point"><span className="passenger-welcome-route-dot" /><span><small>PICKUP</small><strong>Choose your location</strong></span></div>
+                        <div className="passenger-welcome-route-point is-destination"><span className="passenger-welcome-route-dot" /><span><small>DESTINATION</small><strong>Where are you going?</strong></span></div>
+                    </div>
+                </div>
             </section>
+
+            <div className="passenger-dashboard-grid">
+                <div className="passenger-dashboard-main">
+                    <section className="passenger-section-block">
+                        <div className="passenger-section-heading">
+                            <div>
+                                <span className="passenger-section-kicker">ON THE MOVE</span>
+                                <h2>{activeRide ? 'Your current ride' : 'Ready for your next ride?'}</h2>
+                                <p>{activeRide ? 'Your trip details and current status are shown below.' : 'Set your pickup and destination to get started.'}</p>
+                            </div>
+                            {!activeRide && <button className="passenger-text-link" onClick={() => setTab('request')}>Start booking <ChevronRight size={16} aria-hidden="true" /></button>}
+                        </div>
+                        {activeRide
+                            ? <ActiveRideCard ride={activeRide} driverLocation={driverLocation} onClick={() => openTrip(activeRide)} />
+                            : <PassengerBookingCard onRequest={() => setTab('request')} />}
+                    </section>
+
+                    <section className="passenger-section-block passenger-recent-section">
+                        <div className="passenger-section-heading">
+                            <div>
+                                <span className="passenger-section-kicker">YOUR ACTIVITY</span>
+                                <h2>Recent trips</h2>
+                                <p>Your latest journeys, all in one place.</p>
+                            </div>
+                            <button className="passenger-text-link" onClick={() => setTab('trips')}>View all <ChevronRight size={16} aria-hidden="true" /></button>
+                        </div>
+                        {recentTrips.length > 0 ? (
+                            <div className="passenger-recent-list">
+                                {recentTrips.map(ride => <PassengerTripRow key={ride.id} ride={ride} onClick={() => openTrip(ride)} />)}
+                            </div>
+                        ) : (
+                            <div className="passenger-history-empty">
+                                <span className="passenger-history-empty-icon"><History size={19} aria-hidden="true" /></span>
+                                <div>
+                                    <strong>No previous trips yet</strong>
+                                    <p>When you complete a ride, its route and details will appear here.</p>
+                                </div>
+                                <button className="secondary-button compact" onClick={() => setTab('request')}>Plan a ride</button>
+                            </div>
+                        )}
+                    </section>
+                </div>
+
+                <aside className="passenger-dashboard-aside" aria-label="Passenger account overview">
+                    <div className="passenger-stat-grid">
+                        <article className="passenger-stat-card">
+                            <span className="passenger-stat-label">TOTAL TRIPS</span>
+                            <strong>{passengerTrips.length}</strong>
+                            <small>On your account</small>
+                        </article>
+                        <article className="passenger-stat-card is-complete">
+                            <span className="passenger-stat-label">COMPLETED</span>
+                            <strong>{completedTrips}</strong>
+                            <small>Successfully finished</small>
+                        </article>
+                    </div>
+
+                    <section className="passenger-quick-panel">
+                        <div className="passenger-quick-heading">
+                            <span className="passenger-section-kicker">QUICK ACCESS</span>
+                            <h2>Useful shortcuts</h2>
+                        </div>
+                        <button className="passenger-shortcut" onClick={() => setTab('safety')}>
+                            <span className="passenger-shortcut-icon safety"><ShieldCheck size={18} aria-hidden="true" /></span>
+                            <span><strong>Safety centre</strong><small>Emergency tools and trip sharing</small></span>
+                            <ChevronRight size={17} aria-hidden="true" />
+                        </button>
+                        <button className="passenger-shortcut" onClick={() => setTab('profile')}>
+                            <span className="passenger-shortcut-icon profile"><UserRound size={18} aria-hidden="true" /></span>
+                            <span><strong>Profile & contacts</strong><small>Manage your details and emergency contact</small></span>
+                            <ChevronRight size={17} aria-hidden="true" />
+                        </button>
+                        <button className="passenger-shortcut" onClick={() => setTab('trips')}>
+                            <span className="passenger-shortcut-icon trips"><History size={18} aria-hidden="true" /></span>
+                            <span><strong>Trip history</strong><small>Review previous journeys</small></span>
+                            <ChevronRight size={17} aria-hidden="true" />
+                        </button>
+                    </section>
+
+                    <section className="passenger-trust-panel">
+                        <span className="passenger-trust-icon"><ShieldCheck size={20} aria-hidden="true" /></span>
+                        <div>
+                            <strong>Every ride has a record.</strong>
+                            <p>Find your trip details, driver information and available safety tools in one place.</p>
+                        </div>
+                    </section>
+                </aside>
+            </div>
+
             <BottomNav tab={tab} setTab={setTab} />
             {showRating && <RatingModal rating={rating} setRating={setRating} review={review} setReview={setReview} submit={submitRating} close={() => setShowRating(false)} />}
         </div>
     );
 }
 
+function PassengerBookingCard({ onRequest }: { onRequest: () => void }) {
+    return (
+        <section className="passenger-booking-card">
+            <div className="passenger-booking-visual" aria-hidden="true">
+                <div className="passenger-booking-map-grid" />
+                <div className="passenger-booking-route-line" />
+                <span className="passenger-booking-pin pickup"><MapPin size={17} /></span>
+                <span className="passenger-booking-pin destination"><MapPin size={17} /></span>
+                <span className="passenger-booking-vehicle"><CarFront size={19} /></span>
+            </div>
+            <div className="passenger-booking-copy">
+                <span className="passenger-section-kicker">BOOK YOUR NEXT RIDE</span>
+                <h3>Where would you like to go?</h3>
+                <p>Choose your pickup point and destination. You can review the route and fare before sending a request.</p>
+                <button className="primary-button" onClick={onRequest}>Choose pickup & destination <ChevronRight size={17} aria-hidden="true" /></button>
+            </div>
+        </section>
+    );
+}
+
+function PassengerTripRow({ ride, onClick }: { ride: Ride; onClick: () => void }) {
+    const amount = Number(ride.amount || 0);
+    const statusClass = ride.status.toLowerCase().replace(/ /g, '-');
+
+    return (
+        <button className="passenger-trip-row" onClick={onClick} aria-label={`Open trip to ${ride.destination}`}>
+            <span className="passenger-trip-icon"><CarFront size={18} aria-hidden="true" /></span>
+            <span className="passenger-trip-copy">
+                <strong>{ride.destination || 'Destination not recorded'}</strong>
+                <small><span>{ride.pickup || 'Pickup not recorded'}</span><span className="passenger-trip-separator">·</span><span>{formatPassengerTripDate(ride.requestedAt)}</span></small>
+            </span>
+            <span className={'passenger-trip-status ' + statusClass}>{ride.status}</span>
+            <strong className="passenger-trip-amount">₦{amount.toLocaleString()}</strong>
+            <ChevronRight className="passenger-trip-chevron" size={17} aria-hidden="true" />
+        </button>
+    );
+}
+
+function formatPassengerTripDate(value?: string) {
+    if (!value) return 'Date unavailable';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Date unavailable';
+    return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+}
+
 function ActiveRideCard({ ride, driverLocation, onClick }: any) {
     return <section className="ride-card ride-card-map">
-        <div className="card-top"><div><span className="eyebrow">CURRENT TRIP</span><strong className="ride-card-heading">{ride.status === 'Requested' ? 'Finding your driver' : ride.driver ? 'Driver assigned' : 'Ride in progress'}</strong></div><span className={'ride-status ' + ride.status.toLowerCase().replaceAll(' ', '-')}>{ride.status}</span></div>
+        <div className="card-top"><div><span className="eyebrow">CURRENT TRIP</span><strong className="ride-card-heading">{ride.status === 'Requested' ? 'Finding your driver' : ride.status === 'Accepted' ? 'Driver assigned' : 'Your ride is underway'}</strong></div><span className={'ride-status ' + ride.status.toLowerCase().replace(/ /g, '-')}>{ride.status}</span></div>
         <button className="ride-route-action" onClick={onClick} aria-label="Open current trip details"><div className="route"><RoutePoint label="FROM" value={ride.pickup} /><RoutePoint label="TO" value={ride.destination} destination /></div></button>
         <MapView pickup={ride.pickupCoords} destination={ride.destinationCoords} driverLocation={driverLocation} followDriver={ride.status === 'In Progress'} />
         <div className="ride-card-meta"><span><ShieldCheck size={15} /> {ride.driver ? 'Verified driver' : 'Matching with a verified driver'}</span><strong>₦{ride.amount.toLocaleString()}</strong></div>
@@ -1165,7 +1330,6 @@ function ActiveRideCard({ ride, driverLocation, onClick }: any) {
     </section>;
 }
 function RoutePoint({ label, value, destination }: any) { return <div className="route-point"><span className={'dot ' + (destination ? 'destination-dot' : '')} /><div><small>{label}</small><strong>{value}</strong></div></div>; }
-function Feature({ icon, title, text }: any) { return <div className="feature-card"><div className="feature-icon">{icon}</div><strong>{title}</strong><p>{text}</p></div>; }
 
 function RideDetail({ ride, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips', viewAsDriver = false }: any) {
     const navigate = useNavigate();
