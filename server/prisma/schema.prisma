@@ -1,287 +1,287 @@
 // Prisma schema for Tridash ride-hailing app
 
 generator client {
-  provider = "prisma-client-js"
+    provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+    provider = "postgresql"
+    url       = env("DATABASE_URL")
+    directUrl = env("DIRECT_URL")
 }
 
 model User {
-  id            String   @id @default(cuid())
-  firebaseUid   String   @unique
-  email         String   @unique
-  name          String
-  role          String   // 'passenger', 'driver', 'admin'
-  emailVerified Boolean  @default(false)
-  isSuperAdmin  Boolean  @default(false)
-  status        String   @default("active") // 'active', 'suspended'
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+    id            String   @id @default(cuid())
+    firebaseUid   String   @unique
+    email         String   @unique
+    name          String
+    role          String   // 'passenger', 'driver', 'admin'
+    emailVerified Boolean  @default(false)
+    isSuperAdmin  Boolean  @default(false)
+    status        String   @default("active") // 'active', 'suspended'
+    createdAt     DateTime @default(now())
+    updatedAt     DateTime @updatedAt
 
-  sessions      Session[]
-  profile       Profile?
-  driver        Driver?
-  ridesAsPassenger Ride[] @relation("PassengerRides")
-  ridesAsDriver    Ride[] @relation("DriverRides")
-  ratings       Rating[]
-  notifications Notification[]
-  incidents     Incident[]
-  payments      Payment[]
+    sessions      Session[]
+    profile       Profile?
+    driver        Driver?
+    ridesAsPassenger Ride[] @relation("PassengerRides")
+    ridesAsDriver    Ride[] @relation("DriverRides")
+    ratings       Rating[]
+    notifications Notification[]
+    incidents     Incident[]
+    payments      Payment[]
 
-  @@index([email])
-  @@index([firebaseUid])
+    @@index([email])
+    @@index([firebaseUid])
 }
 
 model Session {
-  id         String   @id @default(cuid())
-  tokenHash  String   @unique
-  userId     String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
+    id         String   @id @default(cuid())
+    tokenHash  String   @unique
+    userId     String
+    expiresAt  DateTime
+    createdAt  DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([tokenHash])
-  @@index([userId])
+    @@index([tokenHash])
+    @@index([userId])
 }
 
 model Profile {
-  id             String   @id @default(cuid())
-  userId         String   @unique
-  name           String
-  phone          String
-  emergencyName  String   @default("")
-  emergencyPhone String   @default("")
-  role           String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+    id             String   @id @default(cuid())
+    userId         String   @unique
+    name           String
+    phone          String
+    emergencyName  String   @default("")
+    emergencyPhone String   @default("")
+    role           String
+    createdAt      DateTime @default(now())
+    updatedAt      DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Driver {
-  id             String   @id @default(cuid())
-  userId         String   @unique
-  name           String
-  firstName      String   @default("")
-  lastName       String   @default("")
-  otherNames     String   @default("")
-  dateOfBirth    DateTime?
-  operatingState String   @default("Ebonyi")
-  operatingArea  String   @default("")
-  verificationStatus String @default("incomplete")
-  identityStatus String   @default("pending")
-  licenseStatus  String   @default("pending")
-  vehicleStatus  String   @default("pending")
-  faceStatus     String   @default("not_started")
-  phone          String
-  homeAddress    String   @default("")
-  tricycle       String   @default("")
-  vehicleMake    String   @default("")
-  vehicleModel   String   @default("")
-  vehicleColor   String   @default("")
-  rating         Float    @default(0)
-  ratingCount    Int      @default(0)
-  verified       Boolean  @default(false)
-  online         Boolean  @default(false)
-  status         String   @default("pending") // 'pending', 'active', 'suspended'
-  documents      String[]
-  // Paystack payout details. payoutBankCode is the NIP bank code, used with
-  // payoutAccountNumber to create a Paystack subaccount for split payments.
-  payoutBankName      String @default("")
-  payoutBankCode      String @default("")
-  payoutAccountNumber String @default("")
-  payoutAccountName   String @default("")
-  payoutSubaccountCode String @default("")
-  lastLocation   Json?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+    id             String   @id @default(cuid())
+    userId         String   @unique
+    name           String
+    firstName      String   @default("")
+    lastName       String   @default("")
+    otherNames     String   @default("")
+    dateOfBirth    DateTime?
+    operatingState String   @default("Ebonyi")
+    operatingArea  String   @default("")
+    verificationStatus String @default("incomplete")
+    identityStatus String   @default("pending")
+    licenseStatus  String   @default("pending")
+    vehicleStatus  String   @default("pending")
+    faceStatus     String   @default("not_started")
+    phone          String
+    homeAddress    String   @default("")
+    tricycle       String   @default("")
+    vehicleMake    String   @default("")
+    vehicleModel   String   @default("")
+    vehicleColor   String   @default("")
+    rating         Float    @default(0)
+    ratingCount    Int      @default(0)
+    verified       Boolean  @default(false)
+    online         Boolean  @default(false)
+    status         String   @default("pending") // 'pending', 'active', 'suspended'
+    documents      String[]
+    // Paystack payout details. payoutBankCode is the NIP bank code, used with
+    // payoutAccountNumber to create a Paystack subaccount for split payments.
+    payoutBankName      String @default("")
+    payoutBankCode      String @default("")
+    payoutAccountNumber String @default("")
+    payoutAccountName   String @default("")
+    payoutSubaccountCode String @default("")
+    lastLocation   Json?
+    createdAt      DateTime @default(now())
+    updatedAt      DateTime @updatedAt
 
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rides   Ride[]
-  ratings Rating[]
-  incidents Incident[]
-  verificationDocuments DriverVerificationDocument[]
+    user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    rides   Ride[]
+    ratings Rating[]
+    incidents Incident[]
+    verificationDocuments DriverVerificationDocument[]
 
-  @@index([userId])
-  @@index([online])
-  @@index([verified])
+    @@index([userId])
+    @@index([online])
+    @@index([verified])
 }
 
 
 model DriverVerificationDocument {
-  id              String   @id @default(cuid())
-  driverId        String
-  documentType    String   // government_id, drivers_license, vehicle_registration, selfie
-  originalName    String
-  storageKey      String   @unique
-  mimeType        String
-  sizeBytes       Int
-  status          String   @default("uploaded") // uploaded, needs_review, checks_passed, verified, rejected, expired
-  extractedData   Json?
-  automatedChecks Json?
-  providerName    String   @default("")
-  providerReference String @default("")
-  expiryDate      DateTime?
-  reviewReason    String   @default("")
-  reviewedById    String?
-  reviewedAt      DateTime?
-  uploadedAt      DateTime @default(now())
-  verifiedAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+    id              String   @id @default(cuid())
+    driverId        String
+    documentType    String   // government_id, drivers_license, vehicle_registration, selfie
+    originalName    String
+    storageKey      String   @unique
+    mimeType        String
+    sizeBytes       Int
+    status          String   @default("uploaded") // uploaded, needs_review, checks_passed, verified, rejected, expired
+    extractedData   Json?
+    automatedChecks Json?
+    providerName    String   @default("")
+    providerReference String @default("")
+    expiryDate      DateTime?
+    reviewReason    String   @default("")
+    reviewedById    String?
+    reviewedAt      DateTime?
+    uploadedAt      DateTime @default(now())
+    verifiedAt      DateTime?
+    createdAt       DateTime @default(now())
+    updatedAt       DateTime @updatedAt
 
-  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+    driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
 
-  @@index([driverId])
-  @@index([documentType, status])
+    @@index([driverId])
+    @@index([documentType, status])
 }
 
 model Ride {
-  id                  String   @id @default(cuid())
-  passengerId         String
-  passenger           String
-  passengerPhone      String
-  riderName           String
-  riderPhone          String
-  bookedForSelf       Boolean  @default(true)
-  driverId            String?
-  driver              String?
-  driverPhone         String?
-  tricycle            String?
-  driverVehicleMake   String?
-  driverVehicleModel  String?
-  driverVehicleColor  String?
-  pickup              String
-  destination         String
-  pickupCoords        Json?
-  destinationCoords   Json?
-  status              String   @default("Requested") // 'Requested', 'Accepted', 'In Progress', 'Completed', 'Cancelled'
-  amount              Int
-  paymentStatus       String   @default("Pending") // 'Pending', 'Paid'
-  paymentMethod       String   @default("Paystack")
-  paymentReference    String?
-  rating              Int?
-  rejectedByDriverIds String[] @default([])
-  requestedAt         DateTime @default(now())
-  acceptedAt          DateTime?
-  cancelledAt         DateTime?
-  lastRejectedAt      DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+    id                  String   @id @default(cuid())
+    passengerId         String
+    passenger           String
+    passengerPhone      String
+    riderName           String
+    riderPhone          String
+    bookedForSelf       Boolean  @default(true)
+    driverId            String?
+    driver              String?
+    driverPhone         String?
+    tricycle            String?
+    driverVehicleMake   String?
+    driverVehicleModel  String?
+    driverVehicleColor  String?
+    pickup              String
+    destination         String
+    pickupCoords        Json?
+    destinationCoords   Json?
+    status              String   @default("Requested") // 'Requested', 'Accepted', 'In Progress', 'Completed', 'Cancelled'
+    amount              Int
+    paymentStatus       String   @default("Pending") // 'Pending', 'Paid'
+    paymentMethod       String   @default("Paystack")
+    paymentReference    String?
+    rating              Int?
+    rejectedByDriverIds String[] @default([])
+    requestedAt         DateTime @default(now())
+    acceptedAt          DateTime?
+    cancelledAt         DateTime?
+    lastRejectedAt      DateTime?
+    createdAt           DateTime @default(now())
+    updatedAt           DateTime @updatedAt
 
-  passengerUser User     @relation("PassengerRides", fields: [passengerId], references: [id], onDelete: Cascade)
-  driverUser    User?    @relation("DriverRides", fields: [driverId], references: [id], onDelete: SetNull, map: "Ride_driverUser_fkey")
-  driverProfile Driver?  @relation(fields: [driverId], references: [userId], onDelete: SetNull, map: "Ride_driverProfile_fkey")
-  ratings       Rating[]
-  incidents     Incident[]
-  payments      Payment[]
-  tripShares    TripShare[]
+    passengerUser User     @relation("PassengerRides", fields: [passengerId], references: [id], onDelete: Cascade)
+    driverUser    User?    @relation("DriverRides", fields: [driverId], references: [id], onDelete: SetNull, map: "Ride_driverUser_fkey")
+    driverProfile Driver?  @relation(fields: [driverId], references: [userId], onDelete: SetNull, map: "Ride_driverProfile_fkey")
+    ratings       Rating[]
+    incidents     Incident[]
+    payments      Payment[]
+    tripShares    TripShare[]
 
-  @@index([passengerId])
-  @@index([driverId])
-  @@index([status])
-  @@index([requestedAt])
+    @@index([passengerId])
+    @@index([driverId])
+    @@index([status])
+    @@index([requestedAt])
 }
 
 model Rating {
-  id        String   @id @default(cuid())
-  rideId    String
-  userId    String
-  driverId  String?
-  rating    Int      // 1-5
-  review    String   @default("")
-  createdAt DateTime @default(now())
+    id        String   @id @default(cuid())
+    rideId    String
+    userId    String
+    driverId  String?
+    rating    Int      // 1-5
+    review    String   @default("")
+    createdAt DateTime @default(now())
 
-  ride   Ride    @relation(fields: [rideId], references: [id], onDelete: Cascade)
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  driver Driver? @relation(fields: [driverId], references: [userId], onDelete: SetNull)
+    ride   Ride    @relation(fields: [rideId], references: [id], onDelete: Cascade)
+    user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    driver Driver? @relation(fields: [driverId], references: [userId], onDelete: SetNull)
 
-  @@unique([rideId, userId])
-  @@index([driverId])
+    @@unique([rideId, userId])
+    @@index([driverId])
 }
 
 model Payment {
-  id            String   @id @default(cuid())
-  rideId        String
-  userId        String
-  amount        Int
-  method        String   @default("Paystack")
-  status        String   @default("Pending") // 'Pending', 'Paid'
-  reference     String   @unique
-  authorizationUrl String?  @db.Text
-  transactionId String?
-  channel       String?
-  paidAt        DateTime?
-  createdAt     DateTime @default(now())
+    id            String   @id @default(cuid())
+    rideId        String
+    userId        String
+    amount        Int
+    method        String   @default("Paystack")
+    status        String   @default("Pending") // 'Pending', 'Paid'
+    reference     String   @unique
+    authorizationUrl String?  @db.Text
+    transactionId String?
+    channel       String?
+    paidAt        DateTime?
+    createdAt     DateTime @default(now())
 
-  ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@index([reference])
-  @@index([status])
+    @@index([userId])
+    @@index([reference])
+    @@index([status])
 }
 
 model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  title     String
-  body      String
-  url       String   @default("/")
-  read      Boolean  @default(false)
-  readAt    DateTime?
-  createdAt DateTime @default(now())
+    id        String   @id @default(cuid())
+    userId    String
+    title     String
+    body      String
+    url       String   @default("/")
+    read      Boolean  @default(false)
+    readAt    DateTime?
+    createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@index([read])
+    @@index([userId])
+    @@index([read])
 }
 
 model Incident {
-  id        String   @id @default(cuid())
-  rideId    String?
-  userId    String
-  driverId  String?
-  type      String   // 'SOS', 'complaint', 'admin-report'
-  severity  String   @default("normal") // 'normal', 'high'
-  message   String
-  createdAt DateTime @default(now())
+    id        String   @id @default(cuid())
+    rideId    String?
+    userId    String
+    driverId  String?
+    type      String   // 'SOS', 'complaint', 'admin-report'
+    severity  String   @default("normal") // 'normal', 'high'
+    message   String
+    createdAt DateTime @default(now())
 
-  ride   Ride?   @relation(fields: [rideId], references: [id], onDelete: SetNull)
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  driver Driver? @relation(fields: [driverId], references: [userId], onDelete: SetNull)
+    ride   Ride?   @relation(fields: [rideId], references: [id], onDelete: SetNull)
+    user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    driver Driver? @relation(fields: [driverId], references: [userId], onDelete: SetNull)
 
-  @@index([userId])
-  @@index([type])
-  @@index([severity])
+    @@index([userId])
+    @@index([type])
+    @@index([severity])
 }
 
 model TripShare {
-  id        String   @id @default(cuid())
-  rideId    String
-  token     String   @unique
-  createdBy String
-  expiresAt BigInt
-  createdAt DateTime @default(now())
+    id        String   @id @default(cuid())
+    rideId    String
+    token     String   @unique
+    createdBy String
+    expiresAt BigInt
+    createdAt DateTime @default(now())
 
-  ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+    ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
 
-  @@index([token])
+    @@index([token])
 }
 
 model EntitySubscription {
-  id           String   @id @default(cuid())
-  entityType   String   // 'rides', 'drivers'
-  entityId     String
-  connectionId String
-  createdAt    DateTime @default(now())
+    id           String   @id @default(cuid())
+    entityType   String   // 'rides', 'drivers'
+    entityId     String
+    connectionId String
+    createdAt    DateTime @default(now())
 
-  @@index([entityType, entityId])
-  @@index([connectionId])
+    @@index([entityType, entityId])
+    @@index([connectionId])
 }

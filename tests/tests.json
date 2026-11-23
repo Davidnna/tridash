@@ -1,325 +1,325 @@
 [
-  {
-    "name": "Passenger books a routed ride with profile contact",
-    "sanity": true,
-    "viewport": "mobile",
-    "covers": [
-      "BrowserRouter routes",
-      "route reload stability",
-      "Mapbox map",
-      "GPS pickup",
-      "destination search",
-      "Mapbox routing",
-      "fare estimate",
-      "profile contact confirmation",
-      "ride creation",
-      "requested-state enforcement"
-    ],
-    "description": "Verifies the main passenger booking flow uses the map, route search, profile phone contact, and direct browser routing.",
-    "steps": [
-      "Sign in as a passenger",
-      "Open Request a ride and allow GPS or use the pickup field",
-      "Enter a destination and find the route",
-      "Verify the profile phone is shown as the ride contact without a Book for someone else control",
-      "Confirm and request the ride",
-      "Refresh the application"
-    ],
-    "expected": "The Mapbox map and route are visible, the profile phone is the default contact, the ride is created as Requested, and the app remains on a valid screen after refresh."
-  },
-  {
-    "name": "Passenger edits ride contact and cancels once",
-    "viewport": "mobile",
-    "covers": [
-      "ride contact edit",
-      "passenger cancellation",
-      "cancelled ride removed from active trips",
-      "duplicate cancellation guard",
-      "cancelled ride persistence"
-    ],
-    "description": "Verifies a passenger can edit the contact number for one ride and that cancellation removes the ride from active passenger views.",
-    "steps": [
-      "Open the booking screen",
-      "Edit the ride contact number and save the edit",
-      "Request a ride",
-      "Open the active trip and cancel it",
-      "Return to the rider home or Trips screen",
-      "Attempt to find the cancelled ride among active trips"
-    ],
-    "expected": "The edited contact is used for the ride, cancellation succeeds once, the ride is no longer an active trip, and the cancelled ride cannot be cancelled again from the passenger active flow."
-  },
-  {
-    "name": "Passenger sees a proper not-found page",
-    "viewport": "desktop",
-    "covers": [
-      "404 page",
-      "unknown route handling",
-      "direct URL navigation"
-    ],
-    "description": "Verifies an invalid client route produces a dedicated not-found screen instead of silently opening the workspace home.",
-    "steps": [
-      "Sign in as a passenger",
-      "Navigate directly to an unknown browser path, such as /this-route-does-not-exist",
-      "Observe the route result",
-      "Use the return action"
-    ],
-    "expected": "A dedicated 404 screen explains that the page was not found and provides a working return action."
-  },
-  {
-    "name": "Driver explicitly accepts or rejects a request",
-    "viewport": "desktop",
-    "covers": [
-      "driver online status",
-      "driver request list",
-      "ride acceptance",
-      "driver contact required before acceptance",
-      "driver details visible to passenger",
-      "ride acceptance conflict handling",
-      "ride rejection"
-    ],
-    "description": "Verifies an authenticated verified driver can explicitly accept or reject a Requested ride without corrupting ride ownership.",
-    "steps": [
-      "Sign in as a verified passenger and create a ride",
-      "Sign in as a verified online driver",
-      "Open Ride requests",
-      "Reject one request and confirm it disappears for that driver",
-      "Accept another Requested ride"
-    ],
-    "expected": "Rejecting records the driver rejection without cancelling the passenger ride, while accepting changes the selected ride to Accepted with the driver attached."
-  },
-  {
-    "name": "Passenger completes online Paystack payment and rates trip",
-    "viewport": "desktop",
-    "covers": [
-      "completed trip payment",
-      "Paystack initialization",
-      "server-side payment verification",
-      "payment record",
-      "payment status durability",
-      "completed ride rating",
-      "driver rating aggregation",
-      "duplicate rating protection"
-    ],
-    "description": "Verifies a completed passenger ride can be paid online and rated once with durable state.",
-    "steps": [
-      "Open a completed unpaid trip",
-      "Choose Pay online with Paystack",
-      "Complete the Paystack test checkout",
-      "Return to the Tridash trip route",
-      "Submit a 5-star rating with a short review",
-      "Attempt to submit another rating for the same ride"
-    ],
-    "expected": "Tridash verifies the exact fare and marks the payment Paid, the rating is saved once, the driver aggregate updates, and a duplicate rating is rejected."
-  },
-  {
-    "name": "Driver document verification requires checks before approval",
-    "viewport": "mobile",
-    "covers": [
-      "separate legal name fields",
-      "private document uploads",
-      "document MIME and size validation",
-      "expiry and cross-document checks",
-      "admin document review audit note",
-      "backend driver approval guard",
-      "backend online-status guard"
-    ],
-    "description": "Verifies driver onboarding stores documents privately, records automated checks when an authorised provider is configured, and does not treat uploads alone as proof of validity.",
-    "steps": [
-      "Sign in with a driver account and open Driver verification",
-      "Enter first name, last name, optional other names, date of birth, phone, tricycle registration and operating state",
-      "Save the personal details",
-      "Accept the document-processing consent and upload a government ID, driving licence and vehicle registration",
-      "Confirm each upload appears with its current check status and no public storage URL",
-      "Sign in as an administrator and open Admin > Drivers",
-      "Open each document using the protected document route and record an official check result or a reason for rejection",
-      "Attempt to approve the driver before all required document checks are verified",
-      "Verify the backend rejects approval until all required documents are verified",
-      "Verify the driver cannot go online or accept rides before final approval"
-    ],
-    "expected": "Documents are stored outside public static assets, status and review audit fields are saved, missing or failed checks remain pending/rejected, and the backend blocks driver approval/online access until requirements pass."
-  },
-  {
-    "name": "Passenger cannot mutate protected ride fields",
-    "sanity": true,
-    "viewport": "desktop",
-    "covers": [
-      "role-based authorization",
-      "ride status integrity",
-      "payment integrity",
-      "driver assignment integrity",
-      "server-side field allowlist"
-    ],
-    "description": "Verifies the generic ride update endpoint accepts only allowed status transitions and never trusts passenger-supplied ride fields.",
-    "steps": [
-      "Create a Requested ride as a passenger and record its id",
-      "Send an authenticated PUT /api/rides/:id request as that passenger with status set to Completed",
-      "Repeat with driverId, amount, paymentStatus, paymentReference, and driverPhone fields",
-      "Fetch the ride again as the passenger or administrator"
-    ],
-    "expected": "Passenger update requests are rejected with 403; status, driver assignment, fare, payment status/reference, and contact records remain unchanged."
-  },
-  {
-    "name": "Public trip-share link returns only tracking-safe fields",
-    "sanity": true,
-    "viewport": "mobile",
-    "covers": [
-      "public data minimisation",
-      "trip-share token expiry",
-      "private driver data protection",
-      "passenger contact privacy"
-    ],
-    "description": "Verifies an unauthenticated tracking link returns only the fields required by the shared-trip page.",
-    "steps": [
-      "Create an active ride and generate a temporary trip-share link",
-      "Fetch its public shared-trip API endpoint without an authenticated session",
-      "Inspect every key in the returned ride and driver objects",
-      "Check for passenger phone numbers, driver phone numbers, home address, date of birth, payout/bank fields, and payment references",
-      "Try the link after expiry"
-    ],
-    "expected": "The response contains only route/status/fare/coordinates and minimal driver display/location fields. Private profile, contact, identity, payout, and payment data are absent; expired links return 404."
-  },
-  {
-    "name": "Two drivers cannot accept the same ride",
-    "sanity": true,
-    "viewport": "desktop",
-    "covers": [
-      "atomic ride assignment",
-      "concurrent requests",
-      "conflict response",
-      "single driver ownership"
-    ],
-    "description": "Verifies the backend claims a ride atomically when two eligible online drivers attempt to accept it at nearly the same time.",
-    "steps": [
-      "Create one Requested ride with no assigned driver",
-      "Sign in as two different verified online drivers with configured payout accounts",
-      "Submit both accept requests concurrently",
-      "Reload the ride from the API and inspect its assigned driver",
-      "Check that subscribers receive the successful assignment"
-    ],
-    "expected": "Exactly one request succeeds; the other receives 409. The ride has one assigned driver and cannot be reassigned by the losing request."
-  },
-  {
-    "name": "Keyboard and small-screen accessibility smoke test",
-    "viewport": "mobile",
-    "covers": [
-      "skip link",
-      "visible keyboard focus",
-      "dialog focus trap",
-      "Escape dismissal",
-      "44px controls",
-      "reduced motion",
-      "map accessible name"
-    ],
-    "description": "Checks the core booking and confirmation experience without a mouse and at a narrow viewport.",
-    "steps": [
-      "Set the viewport to 320px wide and check for horizontal page overflow",
-      "Navigate using only Tab and Shift+Tab and verify focus indicators remain visible",
-      "Use the skip link to reach main content",
-      "Open ride confirmation and verify focus moves into the dialog and remains inside it",
-      "Dismiss the dialog with Escape and confirm focus returns to the triggering control",
-      "Enable reduced motion and verify transitions/scroll effects are reduced",
-      "Inspect the map region and confirm it has an accessible name"
-    ],
-    "expected": "Core controls remain usable without horizontal page overflow, keyboard focus is visible and managed inside dialogs, the dialog can be dismissed with Escape, and the map has a meaningful accessible name."
-  },
-  {
-    "name": "Paystack settlement is reference-safe and idempotent",
-    "viewport": "desktop",
-    "covers": [
-      "passenger-only payment",
-      "exact reference matching",
-      "exact amount and currency validation",
-      "atomic payment and ride update",
-      "duplicate webhook handling",
-      "prevent double payment across references"
-    ],
-    "description": "Verifies only the owning passenger can initialize or verify payment, and one confirmed Paystack transaction can settle a ride exactly once.",
-    "steps": [
-      "Sign in as the passenger who owns a completed unpaid ride",
-      "Initialize a Paystack checkout and record its reference",
-      "Attempt verification from another passenger account and a driver account",
-      "Complete the test payment and return to the trip",
-      "Replay the same signed charge.success webhook",
-      "Attempt to settle the same ride using a different payment reference"
-    ],
-    "expected": "Only the owning passenger can verify the payment; the backend checks the exact reference, NGN currency, and expected amount; replayed events are idempotent; and a second reference cannot mark an already-paid ride as paid."
-  },
-  {
-    "name": "Passenger cancellation cannot overwrite a completed ride",
-    "viewport": "mobile",
-    "covers": [
-      "passenger-only cancellation",
-      "atomic cancellation transition",
-      "ride completion race",
-      "duplicate cancellation conflict"
-    ],
-    "description": "Verifies cancellation is authorized for passenger accounts and uses a conditional status transition rather than overwriting a newer ride state.",
-    "steps": [
-      "Sign in as the passenger who owns an active ride",
-      "Cancel the ride and confirm it is marked Cancelled",
-      "Try cancelling the same ride again",
-      "Repeat with a ride that has already reached Completed"
-    ],
-    "expected": "The first valid cancellation succeeds; duplicate or stale cancellation requests return a conflict; a completed ride remains Completed; and driver/admin accounts cannot use the passenger cancellation endpoint."
-  },
-  {
-    "name": "Driver and admin accounts cannot use passenger-only ride actions",
-    "viewport": "desktop",
-    "covers": [
-      "role-based ride creation",
-      "role-based cancellation",
-      "role-based payment initialization",
-      "role-based payment verification",
-      "role-based ride ratings"
-    ],
-    "description": "Verifies sensitive passenger ride operations enforce the authenticated account role on the server, not just in the interface.",
-    "steps": [
-      "Sign in as a driver and attempt to create a ride through the API",
-      "Attempt to cancel a passenger ride as a driver",
-      "Attempt to initialize or verify payment as a driver",
-      "Attempt to rate a completed ride as a driver",
-      "Repeat the restricted requests as an administrator"
-    ],
-    "expected": "The server returns 403 for passenger-only actions from driver and admin accounts, and no ride, payment, cancellation, or rating record is changed."
-  },
-  {
-    "name": "Repeated payment initialization resumes the same checkout",
-    "viewport": "desktop",
-    "covers": [
-      "persisted authorization URL",
-      "same ride advisory lock",
-      "no duplicate pending reference",
-      "checkout recovery after navigation or refresh",
-      "legacy pending payment safety"
-    ],
-    "description": "Verifies repeated initialize requests for one completed unpaid ride reuse the existing Paystack authorization URL and do not create another chargeable payment.",
-    "steps": [
-      "Sign in as the passenger for a completed unpaid ride",
-      "Initialize payment and record the returned reference and authorization URL",
-      "Call initialize again before paying",
-      "Refresh the trip page and start payment again",
-      "Run two initialize requests concurrently for the same ride",
-      "Repeat with a legacy pending payment that has no stored authorization URL"
-    ],
-    "expected": "Normal retries return the same reference and authorization URL; concurrent requests are serialized; only one pending payment is created by this flow; a legacy pending payment is not silently replaced by a second reference."
-  },
-  {
-    "name": "Tridash refreshed palette and motion remain accessible",
-    "viewport": "mobile",
-    "covers": [
-      "charcoal and yellow identity",
-      "warm off-white surfaces",
-      "soft green accents",
-      "gradient CTA contrast",
-      "visible keyboard focus",
-      "reduced-motion preference"
-    ],
-    "description": "Checks the refreshed colour system and subtle transitions across the main passenger, driver and admin surfaces.",
-    "steps": [
-      "Open passenger, driver and admin workspaces at 320px, 768px and desktop widths",
-      "Navigate all primary actions with the keyboard",
-      "Enable reduced-motion in the operating system and reload",
-      "Inspect the primary button, selected navigation, status labels and form fields"
-    ],
-    "expected": "The new charcoal/yellow/ivory/soft-green palette is consistent; key actions remain readable; keyboard focus is visible; layouts do not overflow horizontally; and animations are minimized for reduced-motion users."
-  }
+    {
+        "name": "Passenger books a routed ride with profile contact",
+        "sanity": true,
+        "viewport": "mobile",
+        "covers": [
+            "BrowserRouter routes",
+            "route reload stability",
+            "Mapbox map",
+            "GPS pickup",
+            "destination search",
+            "Mapbox routing",
+            "fare estimate",
+            "profile contact confirmation",
+            "ride creation",
+            "requested-state enforcement"
+        ],
+        "description": "Verifies the main passenger booking flow uses the map, route search, profile phone contact, and direct browser routing.",
+        "steps": [
+            "Sign in as a passenger",
+            "Open Request a ride and allow GPS or use the pickup field",
+            "Enter a destination and find the route",
+            "Verify the profile phone is shown as the ride contact without a Book for someone else control",
+            "Confirm and request the ride",
+            "Refresh the application"
+        ],
+        "expected": "The Mapbox map and route are visible, the profile phone is the default contact, the ride is created as Requested, and the app remains on a valid screen after refresh."
+    },
+    {
+        "name": "Passenger edits ride contact and cancels once",
+        "viewport": "mobile",
+        "covers": [
+            "ride contact edit",
+            "passenger cancellation",
+            "cancelled ride removed from active trips",
+            "duplicate cancellation guard",
+            "cancelled ride persistence"
+        ],
+        "description": "Verifies a passenger can edit the contact number for one ride and that cancellation removes the ride from active passenger views.",
+        "steps": [
+            "Open the booking screen",
+            "Edit the ride contact number and save the edit",
+            "Request a ride",
+            "Open the active trip and cancel it",
+            "Return to the rider home or Trips screen",
+            "Attempt to find the cancelled ride among active trips"
+        ],
+        "expected": "The edited contact is used for the ride, cancellation succeeds once, the ride is no longer an active trip, and the cancelled ride cannot be cancelled again from the passenger active flow."
+    },
+    {
+        "name": "Passenger sees a proper not-found page",
+        "viewport": "desktop",
+        "covers": [
+            "404 page",
+            "unknown route handling",
+            "direct URL navigation"
+        ],
+        "description": "Verifies an invalid client route produces a dedicated not-found screen instead of silently opening the workspace home.",
+        "steps": [
+            "Sign in as a passenger",
+            "Navigate directly to an unknown browser path, such as /this-route-does-not-exist",
+            "Observe the route result",
+            "Use the return action"
+        ],
+        "expected": "A dedicated 404 screen explains that the page was not found and provides a working return action."
+    },
+    {
+        "name": "Driver explicitly accepts or rejects a request",
+        "viewport": "desktop",
+        "covers": [
+            "driver online status",
+            "driver request list",
+            "ride acceptance",
+            "driver contact required before acceptance",
+            "driver details visible to passenger",
+            "ride acceptance conflict handling",
+            "ride rejection"
+        ],
+        "description": "Verifies an authenticated verified driver can explicitly accept or reject a Requested ride without corrupting ride ownership.",
+        "steps": [
+            "Sign in as a verified passenger and create a ride",
+            "Sign in as a verified online driver",
+            "Open Ride requests",
+            "Reject one request and confirm it disappears for that driver",
+            "Accept another Requested ride"
+        ],
+        "expected": "Rejecting records the driver rejection without cancelling the passenger ride, while accepting changes the selected ride to Accepted with the driver attached."
+    },
+    {
+        "name": "Passenger completes online Paystack payment and rates trip",
+        "viewport": "desktop",
+        "covers": [
+            "completed trip payment",
+            "Paystack initialization",
+            "server-side payment verification",
+            "payment record",
+            "payment status durability",
+            "completed ride rating",
+            "driver rating aggregation",
+            "duplicate rating protection"
+        ],
+        "description": "Verifies a completed passenger ride can be paid online and rated once with durable state.",
+        "steps": [
+            "Open a completed unpaid trip",
+            "Choose Pay online with Paystack",
+            "Complete the Paystack test checkout",
+            "Return to the Tridash trip route",
+            "Submit a 5-star rating with a short review",
+            "Attempt to submit another rating for the same ride"
+        ],
+        "expected": "Tridash verifies the exact fare and marks the payment Paid, the rating is saved once, the driver aggregate updates, and a duplicate rating is rejected."
+    },
+    {
+        "name": "Driver document verification requires checks before approval",
+        "viewport": "mobile",
+        "covers": [
+            "separate legal name fields",
+            "private document uploads",
+            "document MIME and size validation",
+            "expiry and cross-document checks",
+            "admin document review audit note",
+            "backend driver approval guard",
+            "backend online-status guard"
+        ],
+        "description": "Verifies driver onboarding stores documents privately, records automated checks when an authorised provider is configured, and does not treat uploads alone as proof of validity.",
+        "steps": [
+            "Sign in with a driver account and open Driver verification",
+            "Enter first name, last name, optional other names, date of birth, phone, tricycle registration and operating state",
+            "Save the personal details",
+            "Accept the document-processing consent and upload a government ID, driving licence and vehicle registration",
+            "Confirm each upload appears with its current check status and no public storage URL",
+            "Sign in as an administrator and open Admin > Drivers",
+            "Open each document using the protected document route and record an official check result or a reason for rejection",
+            "Attempt to approve the driver before all required document checks are verified",
+            "Verify the backend rejects approval until all required documents are verified",
+            "Verify the driver cannot go online or accept rides before final approval"
+        ],
+        "expected": "Documents are stored outside public static assets, status and review audit fields are saved, missing or failed checks remain pending/rejected, and the backend blocks driver approval/online access until requirements pass."
+    },
+    {
+        "name": "Passenger cannot mutate protected ride fields",
+        "sanity": true,
+        "viewport": "desktop",
+        "covers": [
+            "role-based authorization",
+            "ride status integrity",
+            "payment integrity",
+            "driver assignment integrity",
+            "server-side field allowlist"
+        ],
+        "description": "Verifies the generic ride update endpoint accepts only allowed status transitions and never trusts passenger-supplied ride fields.",
+        "steps": [
+            "Create a Requested ride as a passenger and record its id",
+            "Send an authenticated PUT /api/rides/:id request as that passenger with status set to Completed",
+            "Repeat with driverId, amount, paymentStatus, paymentReference, and driverPhone fields",
+            "Fetch the ride again as the passenger or administrator"
+        ],
+        "expected": "Passenger update requests are rejected with 403; status, driver assignment, fare, payment status/reference, and contact records remain unchanged."
+    },
+    {
+        "name": "Public trip-share link returns only tracking-safe fields",
+        "sanity": true,
+        "viewport": "mobile",
+        "covers": [
+            "public data minimisation",
+            "trip-share token expiry",
+            "private driver data protection",
+            "passenger contact privacy"
+        ],
+        "description": "Verifies an unauthenticated tracking link returns only the fields required by the shared-trip page.",
+        "steps": [
+            "Create an active ride and generate a temporary trip-share link",
+            "Fetch its public shared-trip API endpoint without an authenticated session",
+            "Inspect every key in the returned ride and driver objects",
+            "Check for passenger phone numbers, driver phone numbers, home address, date of birth, payout/bank fields, and payment references",
+            "Try the link after expiry"
+        ],
+        "expected": "The response contains only route/status/fare/coordinates and minimal driver display/location fields. Private profile, contact, identity, payout, and payment data are absent; expired links return 404."
+    },
+    {
+        "name": "Two drivers cannot accept the same ride",
+        "sanity": true,
+        "viewport": "desktop",
+        "covers": [
+            "atomic ride assignment",
+            "concurrent requests",
+            "conflict response",
+            "single driver ownership"
+        ],
+        "description": "Verifies the backend claims a ride atomically when two eligible online drivers attempt to accept it at nearly the same time.",
+        "steps": [
+            "Create one Requested ride with no assigned driver",
+            "Sign in as two different verified online drivers with configured payout accounts",
+            "Submit both accept requests concurrently",
+            "Reload the ride from the API and inspect its assigned driver",
+            "Check that subscribers receive the successful assignment"
+        ],
+        "expected": "Exactly one request succeeds; the other receives 409. The ride has one assigned driver and cannot be reassigned by the losing request."
+    },
+    {
+        "name": "Keyboard and small-screen accessibility smoke test",
+        "viewport": "mobile",
+        "covers": [
+            "skip link",
+            "visible keyboard focus",
+            "dialog focus trap",
+            "Escape dismissal",
+            "44px controls",
+            "reduced motion",
+            "map accessible name"
+        ],
+        "description": "Checks the core booking and confirmation experience without a mouse and at a narrow viewport.",
+        "steps": [
+            "Set the viewport to 320px wide and check for horizontal page overflow",
+            "Navigate using only Tab and Shift+Tab and verify focus indicators remain visible",
+            "Use the skip link to reach main content",
+            "Open ride confirmation and verify focus moves into the dialog and remains inside it",
+            "Dismiss the dialog with Escape and confirm focus returns to the triggering control",
+            "Enable reduced motion and verify transitions/scroll effects are reduced",
+            "Inspect the map region and confirm it has an accessible name"
+        ],
+        "expected": "Core controls remain usable without horizontal page overflow, keyboard focus is visible and managed inside dialogs, the dialog can be dismissed with Escape, and the map has a meaningful accessible name."
+    },
+    {
+        "name": "Paystack settlement is reference-safe and idempotent",
+        "viewport": "desktop",
+        "covers": [
+            "passenger-only payment",
+            "exact reference matching",
+            "exact amount and currency validation",
+            "atomic payment and ride update",
+            "duplicate webhook handling",
+            "prevent double payment across references"
+        ],
+        "description": "Verifies only the owning passenger can initialize or verify payment, and one confirmed Paystack transaction can settle a ride exactly once.",
+        "steps": [
+            "Sign in as the passenger who owns a completed unpaid ride",
+            "Initialize a Paystack checkout and record its reference",
+            "Attempt verification from another passenger account and a driver account",
+            "Complete the test payment and return to the trip",
+            "Replay the same signed charge.success webhook",
+            "Attempt to settle the same ride using a different payment reference"
+        ],
+        "expected": "Only the owning passenger can verify the payment; the backend checks the exact reference, NGN currency, and expected amount; replayed events are idempotent; and a second reference cannot mark an already-paid ride as paid."
+    },
+    {
+        "name": "Passenger cancellation cannot overwrite a completed ride",
+        "viewport": "mobile",
+        "covers": [
+            "passenger-only cancellation",
+            "atomic cancellation transition",
+            "ride completion race",
+            "duplicate cancellation conflict"
+        ],
+        "description": "Verifies cancellation is authorized for passenger accounts and uses a conditional status transition rather than overwriting a newer ride state.",
+        "steps": [
+            "Sign in as the passenger who owns an active ride",
+            "Cancel the ride and confirm it is marked Cancelled",
+            "Try cancelling the same ride again",
+            "Repeat with a ride that has already reached Completed"
+        ],
+        "expected": "The first valid cancellation succeeds; duplicate or stale cancellation requests return a conflict; a completed ride remains Completed; and driver/admin accounts cannot use the passenger cancellation endpoint."
+    },
+    {
+        "name": "Driver and admin accounts cannot use passenger-only ride actions",
+        "viewport": "desktop",
+        "covers": [
+            "role-based ride creation",
+            "role-based cancellation",
+            "role-based payment initialization",
+            "role-based payment verification",
+            "role-based ride ratings"
+        ],
+        "description": "Verifies sensitive passenger ride operations enforce the authenticated account role on the server, not just in the interface.",
+        "steps": [
+            "Sign in as a driver and attempt to create a ride through the API",
+            "Attempt to cancel a passenger ride as a driver",
+            "Attempt to initialize or verify payment as a driver",
+            "Attempt to rate a completed ride as a driver",
+            "Repeat the restricted requests as an administrator"
+        ],
+        "expected": "The server returns 403 for passenger-only actions from driver and admin accounts, and no ride, payment, cancellation, or rating record is changed."
+    },
+    {
+        "name": "Repeated payment initialization resumes the same checkout",
+        "viewport": "desktop",
+        "covers": [
+            "persisted authorization URL",
+            "same ride advisory lock",
+            "no duplicate pending reference",
+            "checkout recovery after navigation or refresh",
+            "legacy pending payment safety"
+        ],
+        "description": "Verifies repeated initialize requests for one completed unpaid ride reuse the existing Paystack authorization URL and do not create another chargeable payment.",
+        "steps": [
+            "Sign in as the passenger for a completed unpaid ride",
+            "Initialize payment and record the returned reference and authorization URL",
+            "Call initialize again before paying",
+            "Refresh the trip page and start payment again",
+            "Run two initialize requests concurrently for the same ride",
+            "Repeat with a legacy pending payment that has no stored authorization URL"
+        ],
+        "expected": "Normal retries return the same reference and authorization URL; concurrent requests are serialized; only one pending payment is created by this flow; a legacy pending payment is not silently replaced by a second reference."
+    },
+    {
+        "name": "Tridash refreshed palette and motion remain accessible",
+        "viewport": "mobile",
+        "covers": [
+            "charcoal and yellow identity",
+            "warm off-white surfaces",
+            "soft green accents",
+            "gradient CTA contrast",
+            "visible keyboard focus",
+            "reduced-motion preference"
+        ],
+        "description": "Checks the refreshed colour system and subtle transitions across the main passenger, driver and admin surfaces.",
+        "steps": [
+            "Open passenger, driver and admin workspaces at 320px, 768px and desktop widths",
+            "Navigate all primary actions with the keyboard",
+            "Enable reduced-motion in the operating system and reload",
+            "Inspect the primary button, selected navigation, status labels and form fields"
+        ],
+        "expected": "The new charcoal/yellow/ivory/soft-green palette is consistent; key actions remain readable; keyboard focus is visible; layouts do not overflow horizontally; and animations are minimized for reduced-motion users."
+    }
 ]

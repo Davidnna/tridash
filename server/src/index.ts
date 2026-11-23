@@ -30,24 +30,24 @@ const httpServer = createServer(app);
 // the existing Render setting; FRONTEND_URLS can contain comma-separated
 // additional origins.
 const allowedOrigins = [
-  process.env.FRONTEND_URL || '',
-  process.env.FRONTEND_URLS || '',
+    process.env.FRONTEND_URL || '',
+    process.env.FRONTEND_URLS || '',
 ]
-  .flatMap((value) => value.split(','))
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+    .flatMap((value) => value.split(','))
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
 if (allowedOrigins.length === 0) {
-  allowedOrigins.push('http://localhost:5173');
+    allowedOrigins.push('http://localhost:5173');
 }
 
 const corsOptions: cors.CorsOptions = {
-  origin: allowedOrigins,
-  credentials: true,
+    origin: allowedOrigins,
+    credentials: true,
 };
 
 const io = new Server(httpServer, {
-  cors: corsOptions,
+    cors: corsOptions,
 });
 
 // Middleware
@@ -66,7 +66,7 @@ setupWebSocket(io);
 
 // Health check
 app.get('/api/_healthcheck', (req, res) => {
-  res.json({ message: 'Success', app: 'Tridash' });
+    res.json({ message: 'Success', app: 'Tridash' });
 });
 
 // Routes
@@ -87,10 +87,10 @@ app.use('/api/shared-trip', tripShareRoutes);
 
 // Error handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
-  });
+    console.error('Error:', err);
+    res.status(err.status || 500).json({
+        error: err.message || 'Internal server error',
+    });
 });
 
 const PORT = process.env.PORT || 3001;
@@ -99,13 +99,13 @@ const PORT = process.env.PORT || 3001;
 // This safely adds the nullable checkout URL column on existing databases,
 // including provider migrations where the schema was not fully migrated.
 ensureRuntimeSchema()
-  .then(() => {
-    httpServer.listen(PORT, () => {
-      console.log(`🚀 Tridash server running on port ${PORT}`);
-      console.log(`📡 WebSocket server ready`);
+    .then(() => {
+        httpServer.listen(PORT, () => {
+            console.log(`🚀 Tridash server running on port ${PORT}`);
+            console.log(`📡 WebSocket server ready`);
+        });
+    })
+    .catch((error) => {
+        console.error('Payment schema preparation failed; refusing to start server:', error);
+        process.exit(1);
     });
-  })
-  .catch((error) => {
-    console.error('Payment schema preparation failed; refusing to start server:', error);
-    process.exit(1);
-  });

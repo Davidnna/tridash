@@ -3,18 +3,16 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, useLocation } from 'react-router-dom';
 import App, { PublicSite } from './App';
 import './index.css';
-import './theme-refresh.css';
-import './public-site-refresh.css';
-import './public-home-layout-fix.css';
+import './design-system.css';
 
 function ScrollToTopOnRouteChange() {
-  const { pathname } = useLocation();
+    const { pathname } = useLocation();
 
-  useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-  }, [pathname]);
+    useEffect(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }, [pathname]);
 
-  return null;
+    return null;
 }
 
 const deploymentMode = String((import.meta as any).env?.VITE_TRIDASH_DEPLOYMENT || 'combined');
@@ -32,10 +30,10 @@ const isAppHost = hostname === 'app-tridash.onrender.com';
 const renderPublicSite = isPublicHost || (!isAppHost && deploymentMode === 'public');
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <BrowserRouter>
-      <ScrollToTopOnRouteChange />
-      {renderPublicSite ? <PublicSite /> : <App />}
-    </BrowserRouter>
-  </StrictMode>
+    <StrictMode>
+        <BrowserRouter>
+            <ScrollToTopOnRouteChange />
+            {renderPublicSite ? <PublicSite /> : <App />}
+        </BrowserRouter>
+    </StrictMode>
 );

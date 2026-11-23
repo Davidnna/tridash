@@ -142,7 +142,7 @@ export default function MapView({ pickup, destination, userLocation, driverLocat
         let cancelled = false;
         api.get('/api/route?fromLat=' + pickup.lat + '&fromLng=' + pickup.lng + '&toLat=' + destination.lat + '&toLng=' + destination.lng)
             .then((response: any) => { if (!cancelled) setRouteData(response.data?.route || null); })
-            .catch(() => {});
+            .catch(() => { });
         return () => { cancelled = true; };
     }, [pickup, destination, routeData]);
 
