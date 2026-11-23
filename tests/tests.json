@@ -321,5 +321,82 @@
             "Inspect the primary button, selected navigation, status labels and form fields"
         ],
         "expected": "The new charcoal/yellow/ivory/soft-green palette is consistent; key actions remain readable; keyboard focus is visible; layouts do not overflow horizontally; and animations are minimized for reduced-motion users."
+    },
+    {
+        "name": "Passenger dashboard layout and account activity",
+        "viewport": "desktop",
+        "covers": [
+            "passenger dashboard hierarchy",
+            "ride booking entry point",
+            "active ride visibility",
+            "recent trip history",
+            "empty state",
+            "responsive layout"
+        ],
+        "description": "Verifies the approved passenger dashboard presents booking, active trip information, recent activity and account shortcuts without inventing trip records.",
+        "steps": [
+            "Sign in as a passenger and open the home dashboard",
+            "Verify the welcome section and Book a ride action are visible",
+            "If an active ride exists, verify its current status and trip action are visible; otherwise verify the booking panel is shown",
+            "Verify recent trip rows match the passenger trip records, or that the no-history state is displayed",
+            "Open Trips, Safety and Profile using the dashboard shortcuts",
+            "Repeat at a 390px mobile viewport and a 320px narrow viewport"
+        ],
+        "expected": "The passenger dashboard remains consistent with the approved Tridash design, all shortcuts navigate to the correct screens, data reflects the authenticated passenger, and no horizontal overflow occurs on mobile."
+    },
+    {
+        "name": "Driver dashboard availability, performance and trip activity",
+        "viewport": "desktop",
+        "covers": [
+            "driver availability",
+            "verification eligibility",
+            "payout account requirement",
+            "driver metrics",
+            "active trip",
+            "request queue",
+            "trip history",
+            "mobile navigation"
+        ],
+        "description": "Verifies the driver workspace presents operational status and metrics from the authenticated driver's own ride records.",
+        "steps": [
+            "Sign in as a verified driver with a configured payout account and open /driver",
+            "Verify online/offline status and the availability action reflect the driver profile",
+            "Verify completed trip count, open request count, rating and completed fare value are derived from the driver's records",
+            "If the driver has an accepted or in-progress ride, verify the active trip panel is shown; otherwise verify the next-action state is shown",
+            "Open Ride requests and inspect the request queue",
+            "Open History and verify only the driver's assigned rides are listed",
+            "Repeat with a driver who is not verified or has no payout account and confirm the online action is disabled",
+            "Repeat at 390px and 320px mobile widths"
+        ],
+        "expected": "Driver data is scoped to the authenticated driver, availability is blocked until verification and payout prerequisites are satisfied, trip actions remain functional, navigation highlights the correct tab, and the layout remains usable on mobile."
+    },
+    {
+        "name": "Administrator operations dashboard and section navigation",
+        "viewport": "desktop",
+        "covers": [
+            "administrator overview",
+            "data-derived metrics",
+            "driver verification queue",
+            "live ride monitor",
+            "user management",
+            "ride filters",
+            "incident register",
+            "payment records",
+            "settings",
+            "mobile navigation"
+        ],
+        "description": "Verifies the administrator console exposes all operations sections and that overview metrics reflect the records returned by the administrator APIs.",
+        "steps": [
+            "Sign in with an administrator account and open /admin",
+            "Compare passenger, driver, active ride, pending verification, completed ride and open report metrics with the corresponding API records",
+            "Open Users and search for an account; verify role changes and suspend/reactivate controls remain available",
+            "Open Drivers and inspect verification applications and the registered driver directory",
+            "Open Rides and filter by Requested, Accepted, In Progress, Completed and Cancelled",
+            "Open Reports and verify incident records and the incident entry form",
+            "Open Payments and verify status and amounts match the payment API records",
+            "Open Settings and verify protected account-reset confirmation remains intact",
+            "Repeat navigation at a 390px mobile viewport"
+        ],
+        "expected": "All administrator sections load through their existing routes, metrics are calculated from returned records, search and ride filters work, protected actions retain confirmation, and mobile section navigation remains accessible."
     }
 ]

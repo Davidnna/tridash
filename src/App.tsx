@@ -1524,91 +1524,273 @@ function RatingModal({ rating, setRating, review, setReview, submit, close }: an
 }
 
 function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, updateRide, acceptRide, rejectRide, toggleOnline, notify, saveProfile, profile, driverLocation, setDriverProfile }: any) {
-    // Rides are keyed to the driver's user id (Ride.driverId). Matching on the
-    // driver name alone hid trips whenever the name on the ride and the driver
-    // profile drifted apart, which left drivers unable to open their trip details.
-    const myDriverRides = rides.filter((ride: Ride) => ride.driverId === driver.userId || (ride.driver && ride.driver === driver.name));
+    const driverName = String(driver?.name || profile?.name || 'Driver');
+    const belongsToDriver = (ride: Ride) => (
+        Boolean(driver?.userId && ride.driverId === driver.userId) ||
+        Boolean(ride.driver && ride.driver === driverName)
+    );
+    const myDriverRides = rides.filter((ride: Ride) => belongsToDriver(ride));
+    const completedDriverTrips = myDriverRides.filter((ride: Ride) => ride.status === 'Completed');
+    const recentDriverTrips = [...myDriverRides]
+        .sort((a, b) => new Date(b.completedAt || b.requestedAt || 0).getTime() - new Date(a.completedAt || a.requestedAt || 0).getTime())
+        .slice(0, 4);
+    const visibleRequests = requests.filter((ride: Ride) => (
+        !(ride.rejectedByDriverIds || []).includes(driver?.userId) &&
+        !(ride.rejectedByDriverIds || []).includes(driver?.id)
+    ));
+    const assignedActiveRide = myDriverRides.find((ride: Ride) => ['Accepted', 'In Progress'].includes(ride.status)) || (activeRide && belongsToDriver(activeRide) ? activeRide : null);
+    const hasPayoutAccount = Boolean(driver?.payoutSubaccountCode);
+    const canGoOnline = Boolean(driver?.verified && hasPayoutAccount);
+    const completedFareValue = completedDriverTrips.reduce((total: number, ride: Ride) => total + Number(ride.amount || 0), 0);
+    const ratingValue = Number(driver?.rating || 0);
+    const verificationState = String(driver?.verificationStatus || (driver?.verified ? 'verified' : 'pending')).toLowerCase();
+    const verificationLabel = driver?.verified
+        ? 'Verified driver'
+        : ['rejected', 'needs_review', 'incomplete'].includes(verificationState)
+            ? 'Action required'
+            : 'Verification pending';
 
     if (tab === 'requests') {
         return (
-            <DriverRequests
-                requests={requests}
-                driver={driver}
-                acceptRide={acceptRide}
-                rejectRide={rejectRide}
-                setTab={setTab}
-                toggleOnline={toggleOnline}
-            />
+            <>
+                <DriverRequests
+                    requests={requests}
+                    driver={driver}
+                    acceptRide={acceptRide}
+                    rejectRide={rejectRide}
+                    setTab={setTab}
+                    toggleOnline={toggleOnline}
+                />
+                <BottomNav tab={tab} setTab={setTab} driver />
+            </>
         );
     }
 
     if (tab === 'trips') {
-        return <TripsPage trips={myDriverRides} workspace="driver" />;
+        return (
+            <>
+                <TripsPage trips={myDriverRides} workspace="driver" />
+                <BottomNav tab={tab} setTab={setTab} driver />
+            </>
+        );
     }
 
     if (tab === 'profile') {
         return (
-            <DriverProfilePage
-                profile={{ ...profile, role: 'driver' }}
-                driver={driver}
-                saveProfile={saveProfile}
-                notify={notify}
-                setTab={setTab}
-                setDriverProfile={setDriverProfile}
-            />
+            <>
+                <DriverProfilePage
+                    profile={{ ...profile, role: 'driver' }}
+                    driver={driver}
+                    saveProfile={saveProfile}
+                    notify={notify}
+                    setTab={setTab}
+                    setDriverProfile={setDriverProfile}
+                />
+                <BottomNav tab={tab} setTab={setTab} driver />
+            </>
         );
     }
 
-    const hasPayoutAccount = Boolean(driver.payoutSubaccountCode);
-
     return (
-        <div className="mobile-frame driver-home">
-            <section className="hero-copy">
-                <div className="eyebrow">DRIVER</div>
-                <h1>Good morning,<br /><strong>{driver.name.split(' ')[0]} 👋</strong></h1>
-                <p>Verified drivers keep every ride accountable.</p>
+        <div className="mobile-frame driver-dashboard">
+            <section className="driver-dashboard-hero">
+                <div className="driver-dashboard-hero-copy">
+                    <span className="driver-dashboard-kicker">DRIVER WORKSPACE</span>
+                    <h1>Good to see you, <strong>{driverName.split(' ')[0]}</strong></h1>
+                    <p>Manage your availability, respond to ride requests and keep every trip on track.</p>
+                    <div className="driver-dashboard-hero-meta">
+                        <span className={driver?.verified ? 'driver-hero-badge is-verified' : 'driver-hero-badge is-pending'}>
+                            <ShieldCheck size={14} aria-hidden="true" />
+                            {verificationLabel}
+                        </span>
+                        {driver?.tricycle && <span className="driver-hero-vehicle"><CarFront size={14} aria-hidden="true" /> {driver.tricycle}</span>}
+                    </div>
+                </div>
+                <div className="driver-dashboard-presence">
+                    <span className="driver-dashboard-presence-label">YOUR AVAILABILITY</span>
+                    <div className="driver-dashboard-presence-state">
+                        <span className={'status-dot ' + (driver?.online ? '' : 'offline')} />
+                        <strong>{driver?.online ? 'Online' : 'Offline'}</strong>
+                    </div>
+                    <button
+                        className="driver-presence-toggle"
+                        type="button"
+                        onClick={toggleOnline}
+                        disabled={!canGoOnline}
+                    >
+                        {driver?.online ? 'Go offline' : 'Go online'}
+                    </button>
+                    {!canGoOnline && (
+                        <small>{!driver?.verified ? 'Complete driver verification to go online.' : 'Add a payout account to go online.'}</small>
+                    )}
+                </div>
             </section>
-            <div className="online-card">
-                <div>
-                    <span className={'status-dot ' + (driver.online ? '' : 'offline')} />
-                    {driver.online ? 'Online' : 'Offline'}
-                </div>
-                <button onClick={toggleOnline} disabled={!hasPayoutAccount}>
-                    {driver.online ? 'Go offline' : 'Go online'}
-                </button>
+
+            <section className="driver-metric-grid" aria-label="Driver performance summary">
+                <DriverMetric label="Completed trips" value={completedDriverTrips.length} detail="Trips completed" icon={History} tone="green" />
+                <DriverMetric label="Open requests" value={visibleRequests.length} detail="Awaiting driver assignment" icon={Activity} tone="amber" />
+                <DriverMetric label="Driver rating" value={ratingValue > 0 ? ratingValue.toFixed(1) : '—'} detail={ratingValue > 0 ? 'Recorded passenger rating' : 'No rating recorded yet'} icon={Star} tone="gold" />
+                <DriverMetric label="Completed fare value" value={`₦${completedFareValue.toLocaleString()}`} detail="Gross fares on completed trips" icon={CreditCard} tone="navy" />
+            </section>
+
+            <div className="driver-dashboard-grid">
+                <main className="driver-dashboard-main">
+                    <section className="driver-dashboard-section">
+                        <div className="driver-dashboard-section-head">
+                            <div>
+                                <span className="driver-dashboard-section-kicker">CURRENT WORK</span>
+                                <h2>{assignedActiveRide ? 'Your active trip' : 'Ready for your next request?'}</h2>
+                                <p>{assignedActiveRide ? 'Trip status, passenger details and navigation.' : 'Your ride activity and next available action.'}</p>
+                            </div>
+                            {!assignedActiveRide && (
+                                <button className="driver-dashboard-link" type="button" onClick={() => setTab('requests')}>
+                                    View requests <ChevronRight size={16} aria-hidden="true" />
+                                </button>
+                            )}
+                        </div>
+                        {assignedActiveRide ? (
+                            <ActiveDriverRide
+                                ride={assignedActiveRide}
+                                updateRide={updateRide}
+                                notify={notify}
+                                driverLocation={driverLocation}
+                            />
+                        ) : (
+                            <div className="driver-next-action-card">
+                                <span className="driver-next-action-icon"><CarFront size={22} aria-hidden="true" /></span>
+                                <div>
+                                    <strong>{driver?.online ? 'You are ready to receive rides' : 'You are currently offline'}</strong>
+                                    <p>{driver?.online ? 'New passenger requests will appear in your request queue.' : 'Go online when you are ready to accept passenger requests.'}</p>
+                                    <button className="primary-button" type="button" onClick={() => setTab('requests')}>
+                                        Open ride requests <ChevronRight size={17} aria-hidden="true" />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </section>
+
+                    <section className="driver-dashboard-section driver-recent-section">
+                        <div className="driver-dashboard-section-head">
+                            <div>
+                                <span className="driver-dashboard-section-kicker">TRIP ACTIVITY</span>
+                                <h2>Recent trips</h2>
+                                <p>Your latest assigned and completed journeys.</p>
+                            </div>
+                            <button className="driver-dashboard-link" type="button" onClick={() => setTab('trips')}>
+                                View history <ChevronRight size={16} aria-hidden="true" />
+                            </button>
+                        </div>
+                        {recentDriverTrips.length ? (
+                            <div className="driver-recent-list">
+                                {recentDriverTrips.map((ride: Ride) => (
+                                    <DriverActivityRow key={ride.id} ride={ride} onClick={() => setTab('trips')} />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="driver-dashboard-empty">
+                                <span><History size={19} aria-hidden="true" /></span>
+                                <div>
+                                    <strong>No trip activity yet</strong>
+                                    <p>Accepted and completed passenger journeys will appear here.</p>
+                                </div>
+                            </div>
+                        )}
+                    </section>
+                </main>
+
+                <aside className="driver-dashboard-aside" aria-label="Driver account and requests">
+                    <section className="driver-side-card driver-verification-panel">
+                        <div className="driver-side-card-heading">
+                            <span className="driver-side-icon"><ShieldCheck size={18} aria-hidden="true" /></span>
+                            <span className={driver?.verified ? 'driver-side-status is-verified' : 'driver-side-status is-pending'}>
+                                {driver?.verified ? 'Verified' : verificationLabel}
+                            </span>
+                        </div>
+                        <span className="driver-dashboard-section-kicker">ACCOUNT VERIFICATION</span>
+                        <h3>{driver?.verified ? 'Your account is verified' : verificationState === 'rejected' ? 'Review your verification' : 'Complete your verification'}</h3>
+                        <p>{driver?.verified ? 'Your driver identity and vehicle checks have been approved.' : verificationState === 'rejected' ? 'Some submitted information needs attention. Review the feedback and update the required documents.' : 'Submit the required identity, licence and vehicle documents to become eligible for ride requests.'}</p>
+                        <button className="driver-dashboard-link" type="button" onClick={() => setTab('profile')}>
+                            {driver?.verified ? 'Review driver profile' : 'Continue verification'} <ChevronRight size={16} aria-hidden="true" />
+                        </button>
+                    </section>
+
+                    {!hasPayoutAccount && (
+                        <section className="driver-payout-panel">
+                            <span className="driver-payout-icon"><Landmark size={18} aria-hidden="true" /></span>
+                            <span className="driver-dashboard-section-kicker">ACTION REQUIRED</span>
+                            <h3>Add your payout account</h3>
+                            <p>Connect your bank account before switching online and accepting rides.</p>
+                            <button className="primary-button full" type="button" onClick={() => setTab('profile')}>
+                                Add payout details <ChevronRight size={17} aria-hidden="true" />
+                            </button>
+                        </section>
+                    )}
+
+                    <section className="driver-side-card driver-request-preview">
+                        <div className="driver-dashboard-section-head">
+                            <div>
+                                <span className="driver-dashboard-section-kicker">RIDE QUEUE</span>
+                                <h3>New requests</h3>
+                            </div>
+                            <span className="driver-request-count">{visibleRequests.length}</span>
+                        </div>
+                        {visibleRequests.length ? (
+                            <div className="driver-request-preview-list">
+                                {visibleRequests.slice(0, 3).map((ride: Ride) => (
+                                    <button className="driver-request-preview-row" key={ride.id} type="button" onClick={() => setTab('requests')}>
+                                        <span className="driver-request-route-mark"><MapPin size={16} aria-hidden="true" /></span>
+                                        <span className="driver-request-preview-copy">
+                                            <strong>{ride.pickup}</strong>
+                                            <small>To {ride.destination}</small>
+                                        </span>
+                                        <b>₦{Number(ride.amount || 0).toLocaleString()}</b>
+                                    </button>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="driver-request-none">No new ride requests at the moment.</p>
+                        )}
+                        <button className="driver-dashboard-link" type="button" onClick={() => setTab('requests')}>
+                            Open request queue <ChevronRight size={16} aria-hidden="true" />
+                        </button>
+                    </section>
+                </aside>
             </div>
-            <div className="verification-card">
-                <div className="verified-badge"><ShieldCheck size={19} /></div>
-                <div>
-                    <span className="eyebrow">VERIFICATION</span>
-                    <strong>{driver.verified ? 'Verified driver' : 'Verification pending'}</strong>
-                    <p>Your identity, driving licence and vehicle documents are checked before your account is approved.</p>
-                </div>
-            </div>
-            {!hasPayoutAccount && (
-                <div className="form-card">
-                    <span className="eyebrow">ACTION REQUIRED</span>
-                    <strong>Add your payout account</strong>
-                    <p>Add the bank account that receives your earnings. Drivers without a payout account cannot go online or accept rides.</p>
-                    <button className="primary-button full" onClick={() => setTab('profile')}>
-                        Add payout account <ChevronRight size={18} />
-                    </button>
-                </div>
-            )}
-            {activeRide && activeRide.driverId === driver.userId ? (
-                <ActiveDriverRide ride={activeRide} updateRide={updateRide} notify={notify} driverLocation={driverLocation} />
-            ) : (
-                <div className="empty-card">
-                    <div className="empty-icon"><CarFront size={22} /></div>
-                    <h2>{driver.online ? 'Waiting for requests' : 'You are offline'}</h2>
-                    <p>{driver.online ? 'New passenger requests will appear in Ride requests.' : 'Go online to receive ride requests.'}</p>
-                    <button className="primary-button" onClick={() => setTab('requests')}>
-                        View requests <ChevronRight size={18} />
-                    </button>
-                </div>
-            )}
+
             <BottomNav tab={tab} setTab={setTab} driver />
         </div>
+    );
+}
+
+function DriverMetric({ label, value, detail, icon: Icon, tone }: any) {
+    return (
+        <article className={`driver-metric-card is-${tone}`}>
+            <span className="driver-metric-icon"><Icon size={18} aria-hidden="true" /></span>
+            <span className="driver-metric-label">{label}</span>
+            <strong>{value}</strong>
+            <small>{detail}</small>
+        </article>
+    );
+}
+
+function DriverActivityRow({ ride, onClick }: { ride: Ride; onClick: () => void }) {
+    const dateValue = ride.completedAt || ride.requestedAt;
+    const tripDate = dateValue && !Number.isNaN(new Date(dateValue).getTime())
+        ? new Date(dateValue).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+        : 'Date unavailable';
+    const statusClass = ride.status.toLowerCase().replace(/ /g, '-');
+
+    return (
+        <button className="driver-activity-row" type="button" onClick={onClick}>
+            <span className="driver-activity-icon"><CarFront size={18} aria-hidden="true" /></span>
+            <span className="driver-activity-copy">
+                <strong>{ride.destination || 'Destination not recorded'}</strong>
+                <small>{ride.passenger || 'Passenger'} · {tripDate}</small>
+            </span>
+            <span className={`driver-activity-status ${statusClass}`}>{ride.status}</span>
+            <b>₦{Number(ride.amount || 0).toLocaleString()}</b>
+            <ChevronRight size={16} aria-hidden="true" />
+        </button>
     );
 }
 
@@ -1639,7 +1821,7 @@ function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, togg
                     </span>
                 </div>
                 {driver?.verified && (
-                    <button onClick={toggleOnline}>{driver?.online ? 'Go offline' : 'Go online'}</button>
+                    <button disabled={!hasPayoutAccount} onClick={toggleOnline}>{driver?.online ? 'Go offline' : 'Go online'}</button>
                 )}
             </div>
             {visibleRequests.length ? visibleRequests.map((ride: Ride) => (
@@ -2097,48 +2279,457 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
     const navigate = useNavigate();
     const location = useLocation();
     const [section, setSection] = useState(initialSection);
-    useEffect(() => { setSection(initialSection); }, [initialSection]);
-    const changeSection = (next: string) => {
-        setSection(next);
-        navigateFromRoot(navigate, location.pathname, next === 'overview' ? 'admin' : 'admin/' + next);
-    };
     const [search, setSearch] = useState('');
+    const [rideFilter, setRideFilter] = useState('all');
     const [reportText, setReportText] = useState('');
     const [users, setUsers] = useState<any[]>([]);
     const [incidents, setIncidents] = useState<any[]>([]);
     const [payments, setPayments] = useState<any[]>([]);
     const [verificationApplications, setVerificationApplications] = useState<any[]>([]);
-    const [adminLoading, setAdminLoading] = useState(false);
-    const filteredRides = rides.filter((r: Ride) => JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
-    const active = rides.filter((r: Ride) => !['Completed', 'Cancelled'].includes(r.status)).length;
-    const passengerCount = users.filter(u => u.role === 'passenger').length;
+    const [adminLoading, setAdminLoading] = useState(true);
+    const [adminDataWarning, setAdminDataWarning] = useState('');
+
+    useEffect(() => {
+        setSection(initialSection);
+    }, [initialSection]);
+
+    const changeSection = (next: string) => {
+        setSection(next);
+        setSearch('');
+        setRideFilter('all');
+        navigateFromRoot(navigate, location.pathname, next === 'overview' ? 'admin' : 'admin/' + next);
+    };
+
     const loadAdminData = async () => {
         setAdminLoading(true);
         try {
-            const [u, i, p, v] = await Promise.all([api.get('/api/admin/users').catch(() => ({ data: {} })), api.get('/api/admin/incidents').catch(() => ({ data: {} })), api.get('/api/admin/payments').catch(() => ({ data: {} })), api.get('/api/admin/driver-verifications').catch(() => ({ data: {} }))]);
-            setUsers(u.data?.users || []);
-            setIncidents(i.data?.incidents || []);
-            setPayments(p.data?.payments || []);
-            setVerificationApplications(v.data?.applications || []);
+            const results = await Promise.allSettled([
+                api.get('/api/admin/users'),
+                api.get('/api/admin/incidents'),
+                api.get('/api/admin/payments'),
+                api.get('/api/admin/driver-verifications')
+            ]);
+            const [usersResult, incidentsResult, paymentsResult, verificationResult] = results;
+            const failures = results.flatMap((result, index) => result.status === 'rejected'
+                ? [['users', 'incidents', 'payments', 'driver verification'][index]]
+                : []);
+            setUsers(usersResult.status === 'fulfilled' ? usersResult.value.data?.users || [] : []);
+            setIncidents(incidentsResult.status === 'fulfilled' ? incidentsResult.value.data?.incidents || [] : []);
+            setPayments(paymentsResult.status === 'fulfilled' ? paymentsResult.value.data?.payments || [] : []);
+            setVerificationApplications(verificationResult.status === 'fulfilled' ? verificationResult.value.data?.applications || [] : []);
+            setAdminDataWarning(failures.length
+                ? `Some data sources could not be loaded: ${failures.join(', ')}. Dashboard figures may be incomplete.`
+                : '');
         } catch {
-            notify('Some admin data could not be refreshed.');
+            setAdminDataWarning('Administrator data could not be refreshed. Dashboard figures may be incomplete.');
+            notify('Administrator data could not be refreshed.');
         } finally {
             setAdminLoading(false);
         }
     };
-    useEffect(() => { void loadAdminData(); }, [section]);
-    return <div className="admin-layout"><aside className="admin-side"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><div className="eyebrow">OPERATIONS</div>{[['overview', Home, 'Overview'], ['users', Users, 'Users'], ['drivers', ShieldCheck, 'Drivers'], ['rides', Activity, 'Rides'], ['reports', MessageSquareWarning, 'Reports'], ['payments', CreditCard, 'Payments'], ['settings', Settings, 'Settings']].map(([key, Icon, label]: any) => <button key={key} className={section === key ? 'side-active' : ''} onClick={() => changeSection(key)}><Icon size={17} />{label}</button>)}</aside><section className="admin-content"><div className="admin-mobile-nav"><select aria-label="Admin section" value={section} onChange={e => changeSection(e.target.value)}>{[['overview', 'Overview'], ['users', 'Users'], ['drivers', 'Drivers'], ['rides', 'Rides'], ['reports', 'Reports'], ['payments', 'Payments'], ['settings', 'Settings']].map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></div><div className="admin-head"><div><div className="eyebrow">ADMINISTRATOR</div><h1>{section[0].toUpperCase() + section.slice(1)}</h1></div><button className="secondary-button" disabled={adminLoading} onClick={() => { void loadAdminData(); }}>{adminLoading ? 'Refreshing…' : 'Refresh'}</button></div>
-        {section === 'overview' && <><div className="stats"><Stat label="Passengers" value={passengerCount} icon={Users} /><Stat label="Verified drivers" value={drivers.filter((d: Driver) => d.verified).length} icon={ShieldCheck} /><Stat label="Active rides" value={active} icon={Activity} /><Stat label="Reports" value={incidents.length} icon={AlertTriangle} /></div><Panel title="Driver verification" eyebrow="PENDING APPLICATIONS"><p className="muted">{verificationApplications.length ? 'Review each uploaded document, record the verification result, and approve only after all required checks pass.' : 'No pending applications.'}</p>{verificationApplications.map((application: any) => <DriverVerificationApplication key={application.id} application={application} notify={notify} onRefresh={loadAdminData} />)}</Panel><Panel title="Live ride monitor" eyebrow="CURRENT ACTIVITY">{rides.slice(0, 8).map((r: Ride) => <RideAdminRow key={r.id} ride={r} />)}</Panel></>}
-        {section === 'users' && <Panel title="User management" eyebrow="PASSENGERS · DRIVERS · ADMINS"><div className="search-box"><Search size={17} /><input placeholder="Search users" value={search} onChange={e => setSearch(e.target.value)} /></div>{adminLoading ? <p className="muted">Loading users…</p> : users.filter(u => JSON.stringify(u).toLowerCase().includes(search.toLowerCase())).map(u => <AdminUserRow key={u.id} user={u} updateUserRole={updateUserRole} suspendUser={suspendUser} setUsers={setUsers} askConfirm={askConfirm} />)}</Panel>}
-        {section === 'drivers' && <><Panel title="Verification applications" eyebrow="DOCUMENT REVIEW"><div className="search-box"><Search size={17} /><input placeholder="Search applications by name, phone or state" value={search} onChange={e => setSearch(e.target.value)} /></div>{verificationApplications.filter((a: any) => JSON.stringify(a).toLowerCase().includes(search.toLowerCase())).map((application: any) => <DriverVerificationApplication key={application.id} application={application} notify={notify} onRefresh={loadAdminData} />)}</Panel><Panel title="Approved and registered drivers" eyebrow="DRIVER DIRECTORY">{drivers.filter((d: Driver) => d.name.toLowerCase().includes(search.toLowerCase())).map((d: Driver) => <DriverAdminRow key={d.id} driver={d} approve={() => approveDriver(d)} />)}</Panel></>}
-        {section === 'rides' && <Panel title="Ride management" eyebrow="ALL RIDES"><div className="search-box"><Search size={17} /><input placeholder="Search passenger, route or status" value={search} onChange={e => setSearch(e.target.value)} /></div>{filteredRides.map((r: Ride) => <RideAdminRow key={r.id} ride={r} />)}</Panel>}
-        {section === 'reports' && <Panel title="Complaints & incidents" eyebrow="SAFETY QUEUE"><div className="incident-demo"><AlertTriangle size={20} /><div><strong>Safety queue</strong><p>Review SOS events, complaints and operational reports.</p></div></div><textarea value={reportText} onChange={e => setReportText(e.target.value)} placeholder="Incident details…" /><button className="primary-button" disabled={!reportText.trim() || adminLoading} onClick={async () => { if (!reportText.trim()) return; try { await api.post('/api/incidents', { type: 'admin-report', message: reportText.trim() }); setReportText(''); await loadAdminData(); notify('Incident recorded') } catch { notify('Incident could not be recorded') } }}>Record incident</button>{adminLoading ? <p className="muted">Loading incidents…</p> : incidents.map(i => <div className="ride-row" key={i.id}><div><strong>{i.type || 'Incident'}</strong><span>{i.message || 'No details'} · {i.createdAt ? new Date(i.createdAt).toLocaleString() : ''}</span></div><span className={'ride-status ' + String(i.severity || 'normal').toLowerCase()}>{i.severity || 'normal'}</span></div>)}</Panel>}
-        {section === 'payments' && <Panel title="Payment records" eyebrow="FINANCIAL AUDIT"><p className="muted">All Tridash passenger payments are processed online through Paystack and verified server-side before a ride is marked paid.</p>{adminLoading ? <p className="muted">Loading payments…</p> : payments.map(p => <div className="ride-row" key={p.id}><div><strong>{p.method || 'Payment'}</strong><span>Ride {p.rideId || '—'} · ₦{Number(p.amount || 0).toLocaleString()}</span></div><span className={'ride-status ' + String(p.status || 'Pending').toLowerCase()}>{p.status || 'Pending'}</span></div>)}</Panel>}
-        {section === 'settings' && <Panel title="Platform settings" eyebrow="CONFIGURATION"><div className="settings-row"><Shield size={19} /><div><strong>Safety policy</strong><span>SOS events are stored against trip records.</span></div><CheckCircle2 size={18} /></div><div className="settings-row"><CreditCard size={19} /><div><strong>Payments</strong><span>All passenger payments use Paystack online checkout and server-side verification.</span></div><CheckCircle2 size={18} /></div><div className="settings-row"><Bell size={19} /><div><strong>Notifications</strong><span>Ride and safety notification delivery is enabled through the platform.</span></div><CheckCircle2 size={18} /></div><div className="danger-panel"><div><strong>Start fresh</strong><span>Delete every Tridash and Firebase account except the superadmin account. This is irreversible.</span></div><button className="secondary-button danger-button" onClick={async () => { const first = await askConfirm('Delete other users?', 'This will delete every Tridash and Firebase account except the protected superadmin account.', 'Delete accounts'); if (!first) return; const second = await askConfirm('Final confirmation', 'This action cannot be undone. Continue deleting the other accounts?', 'Yes, delete them'); if (!second) return; try { const res = await api.post('/api/admin/reset-users'); notify((res.data?.deletedFirebaseUsers || 0) + ' other user account(s) deleted.'); setUsers([]); } catch (error: any) { notify(error?.message || 'User reset could not be completed.'); } }}>Delete other users</button></div></Panel>}
-    </section></div>;
+
+    useEffect(() => {
+        void loadAdminData();
+    }, [section]);
+
+    const normalizedSearch = search.trim().toLowerCase();
+    const activeRides = rides.filter((ride: Ride) => !['Completed', 'Cancelled'].includes(ride.status));
+    const completedRides = rides.filter((ride: Ride) => ride.status === 'Completed');
+    const passengerCount = users.filter(user => user.role === 'passenger').length;
+    const driverCount = drivers.length;
+    const verifiedDriverCount = drivers.filter((driver: Driver) => driver.verified).length;
+    const pendingApplications = verificationApplications.filter((application: any) => (
+        !application.verified && !['approved', 'verified', 'rejected'].includes(String(application.verificationStatus || '').toLowerCase())
+    ));
+    const openIncidentCount = incidents.filter((incident: any) => (
+        !['resolved', 'closed'].includes(String(incident.status || '').toLowerCase())
+    )).length;
+    const paidPayments = payments.filter((payment: any) => (
+        ['paid', 'success', 'successful'].includes(String(payment.status || '').toLowerCase())
+    ));
+    const paidPaymentValue = paidPayments.reduce((total: number, payment: any) => total + Number(payment.amount || 0), 0);
+
+    const filteredUsers = users.filter((user: any) => (
+        !normalizedSearch || JSON.stringify(user).toLowerCase().includes(normalizedSearch)
+    ));
+    const filteredApplications = verificationApplications.filter((application: any) => (
+        !normalizedSearch || JSON.stringify(application).toLowerCase().includes(normalizedSearch)
+    ));
+    const filteredDrivers = drivers.filter((driver: Driver) => (
+        !normalizedSearch || `${driver.name} ${driver.phone} ${driver.tricycle}`.toLowerCase().includes(normalizedSearch)
+    ));
+    const filteredRides = rides.filter((ride: Ride) => {
+        const matchesSearch = !normalizedSearch || JSON.stringify(ride).toLowerCase().includes(normalizedSearch);
+        const matchesStatus = rideFilter === 'all' || ride.status.toLowerCase() === rideFilter;
+        return matchesSearch && matchesStatus;
+    });
+    const filteredIncidents = incidents.filter((incident: any) => (
+        !normalizedSearch || JSON.stringify(incident).toLowerCase().includes(normalizedSearch)
+    ));
+    const filteredPayments = payments.filter((payment: any) => (
+        !normalizedSearch || JSON.stringify(payment).toLowerCase().includes(normalizedSearch)
+    ));
+
+    const sectionTitles: Record<string, string> = {
+        overview: 'Overview',
+        users: 'User management',
+        drivers: 'Driver management',
+        rides: 'Ride monitoring',
+        reports: 'Reports & incidents',
+        payments: 'Payment records',
+        settings: 'Platform settings'
+    };
+    const sectionDescriptions: Record<string, string> = {
+        overview: 'A live view of passenger activity, driver verification and ride operations.',
+        users: 'Review registered accounts, account status and workspace permissions.',
+        drivers: 'Review submitted documents and manage the registered driver directory.',
+        rides: 'Monitor requested, accepted, active, completed and cancelled journeys.',
+        reports: 'Review safety reports and record operational incidents.',
+        payments: 'Review payment records and amounts confirmed by the payment workflow.',
+        settings: 'Review platform controls and operational configuration.'
+    };
+    const navigationItems = [
+        { key: 'overview', label: 'Overview', icon: Home },
+        { key: 'users', label: 'Users', icon: Users },
+        { key: 'drivers', label: 'Drivers', icon: ShieldCheck },
+        { key: 'rides', label: 'Rides', icon: Activity },
+        { key: 'reports', label: 'Reports', icon: MessageSquareWarning },
+        { key: 'payments', label: 'Payments', icon: CreditCard },
+        { key: 'settings', label: 'Settings', icon: Settings }
+    ];
+
+    return (
+        <div className="admin-layout admin-workspace-v2">
+            <aside className="admin-side">
+                <div className="admin-brand-lockup">
+                    <span className="brand-mark"><Zap size={18} aria-hidden="true" /></span>
+                    <span>tridash</span>
+                </div>
+                <div className="admin-side-label">OPERATIONS WORKSPACE</div>
+                <nav className="admin-side-nav" aria-label="Administrator navigation">
+                    {navigationItems.map(({ key, label, icon: Icon }) => (
+                        <button
+                            key={key}
+                            type="button"
+                            className={section === key ? 'side-active' : ''}
+                            aria-current={section === key ? 'page' : undefined}
+                            onClick={() => changeSection(key)}
+                        >
+                            <Icon size={17} aria-hidden="true" />
+                            <span>{label}</span>
+                            {key === 'drivers' && pendingApplications.length > 0 && (
+                                <span className="admin-nav-count">{pendingApplications.length}</span>
+                            )}
+                        </button>
+                    ))}
+                </nav>
+                <div className="admin-side-footer">
+                    <span className="admin-side-footer-icon"><ShieldCheck size={17} aria-hidden="true" /></span>
+                    <div>
+                        <strong>Protected workspace</strong>
+                        <small>Administrator access</small>
+                    </div>
+                </div>
+            </aside>
+
+            <section className="admin-content admin-content-v2">
+                <div className="admin-mobile-nav">
+                    <select aria-label="Admin section" value={section} onChange={event => changeSection(event.target.value)}>
+                        {navigationItems.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+                    </select>
+                </div>
+
+                <div className="admin-toolbar">
+                    <div className="admin-breadcrumb">
+                        <span>TRIDASH</span>
+                        <ChevronRight size={14} aria-hidden="true" />
+                        <strong>OPERATIONS</strong>
+                    </div>
+                    <div className="admin-toolbar-actions">
+                        <span className="admin-sync-indicator"><span /> Data workspace</span>
+                        <button className="admin-refresh-button" type="button" disabled={adminLoading} onClick={() => { void loadAdminData(); }}>
+                            <RefreshCw size={15} aria-hidden="true" className={adminLoading ? 'is-spinning' : ''} />
+                            {adminLoading ? 'Refreshing' : 'Refresh data'}
+                        </button>
+                    </div>
+                </div>
+
+                <header className="admin-page-heading">
+                    <div>
+                        <span className="admin-page-kicker">ADMINISTRATOR CONSOLE</span>
+                        <h1>{sectionTitles[section] || 'Operations'}</h1>
+                        <p>{sectionDescriptions[section] || 'Manage Tridash platform operations.'}</p>
+                    </div>
+                    <div className="admin-page-date">
+                        <span>WORKSPACE</span>
+                        <strong>Operations</strong>
+                    </div>
+                </header>
+
+                {adminDataWarning && <div className="admin-data-warning" role="alert"><AlertTriangle size={17} aria-hidden="true" /><span>{adminDataWarning}</span><button type="button" onClick={() => { void loadAdminData(); }}>Retry</button></div>}
+
+                {section === 'overview' && (
+                    <div className="admin-overview">
+                        <section className="admin-overview-banner">
+                            <div className="admin-overview-banner-copy">
+                                <span>OPERATIONS SNAPSHOT</span>
+                                <h2>Keep every journey moving.</h2>
+                                <p>Monitor the network, review driver applications and stay informed about current ride activity.</p>
+                                <div className="admin-overview-actions">
+                                    <button type="button" onClick={() => changeSection('drivers')}>Review drivers <ChevronRight size={16} aria-hidden="true" /></button>
+                                    <button type="button" onClick={() => changeSection('rides')}>Monitor rides <ChevronRight size={16} aria-hidden="true" /></button>
+                                </div>
+                            </div>
+                            <div className="admin-overview-banner-visual" aria-hidden="true">
+                                <span className="admin-overview-orbit orbit-one" />
+                                <span className="admin-overview-orbit orbit-two" />
+                                <span className="admin-overview-route-line" />
+                                <span className="admin-overview-route-pin pin-one"><MapPin size={17} /></span>
+                                <span className="admin-overview-route-pin pin-two"><CarFront size={18} /></span>
+                            </div>
+                        </section>
+
+                        <div className="admin-metric-grid">
+                            <AdminMetric label="Passengers" value={passengerCount} detail="Registered passenger accounts" icon={Users} tone="green" />
+                            <AdminMetric label="Registered drivers" value={driverCount} detail={`${verifiedDriverCount} verified`} icon={CarFront} tone="amber" />
+                            <AdminMetric label="Active rides" value={activeRides.length} detail="Requested, accepted or in progress" icon={Activity} tone="navy" />
+                            <AdminMetric label="Pending verification" value={pendingApplications.length} detail="Applications awaiting review" icon={FileCheck2} tone="gold" />
+                            <AdminMetric label="Completed rides" value={completedRides.length} detail="Successfully completed" icon={CheckCircle2} tone="green" />
+                            <AdminMetric label="Open reports" value={openIncidentCount} detail={`${incidents.length} total incident records`} icon={AlertTriangle} tone="rose" />
+                        </div>
+
+                        <div className="admin-overview-grid">
+                            <Panel title="Driver verification queue" eyebrow="REVIEW REQUIRED" className="admin-overview-panel">
+                                <p className="admin-panel-intro">Review submitted documents and record each required check before approving an application.</p>
+                                {adminLoading ? (
+                                    <AdminEmptyState title="Loading applications" detail="Retrieving the latest driver verification records." />
+                                ) : pendingApplications.length ? (
+                                    pendingApplications.slice(0, 3).map((application: any) => (
+                                        <DriverVerificationApplication key={application.id} application={application} notify={notify} onRefresh={loadAdminData} />
+                                    ))
+                                ) : (
+                                    <AdminEmptyState title="No pending applications" detail="There are no driver applications awaiting review." />
+                                )}
+                                {pendingApplications.length > 3 && (
+                                    <button className="admin-panel-link" type="button" onClick={() => changeSection('drivers')}>
+                                        View all {pendingApplications.length} applications <ChevronRight size={16} aria-hidden="true" />
+                                    </button>
+                                )}
+                            </Panel>
+
+                            <Panel title="Live ride monitor" eyebrow="CURRENT ACTIVITY" className="admin-overview-panel">
+                                <div className="admin-panel-toolbar">
+                                    <span>{activeRides.length} active ride{activeRides.length === 1 ? '' : 's'}</span>
+                                    <button type="button" onClick={() => changeSection('rides')}>View all <ChevronRight size={14} aria-hidden="true" /></button>
+                                </div>
+                                {activeRides.length ? (
+                                    activeRides.slice(0, 6).map((ride: Ride) => <RideAdminRow key={ride.id} ride={ride} />)
+                                ) : (
+                                    <AdminEmptyState title="No active rides" detail="New and ongoing passenger journeys will appear here." />
+                                )}
+                                <div className="admin-operations-summary">
+                                    <div><span>Completed</span><strong>{completedRides.length}</strong></div>
+                                    <div><span>Cancelled</span><strong>{rides.filter((ride: Ride) => ride.status === 'Cancelled').length}</strong></div>
+                                    <div><span>Verified drivers</span><strong>{verifiedDriverCount}</strong></div>
+                                </div>
+                            </Panel>
+                        </div>
+                    </div>
+                )}
+
+                {section === 'users' && (
+                    <div className="admin-section-layout">
+                        <div className="admin-section-summary-grid">
+                            <AdminMetric label="All accounts" value={users.length} detail="Registered platform users" icon={Users} tone="green" />
+                            <AdminMetric label="Passengers" value={passengerCount} detail="Passenger workspaces" icon={UserRound} tone="amber" />
+                            <AdminMetric label="Drivers" value={users.filter(user => user.role === 'driver').length} detail="Driver workspaces" icon={CarFront} tone="navy" />
+                        </div>
+                        <Panel title="User directory" eyebrow="ACCOUNT MANAGEMENT" className="admin-section-panel">
+                            <div className="admin-list-toolbar">
+                                <div className="search-box"><Search size={17} /><input aria-label="Search users" placeholder="Search name, email or role" value={search} onChange={event => setSearch(event.target.value)} /></div>
+                                <span>{filteredUsers.length} account{filteredUsers.length === 1 ? '' : 's'}</span>
+                            </div>
+                            {adminLoading ? <AdminEmptyState title="Loading users" detail="Retrieving registered account records." /> : filteredUsers.length ? filteredUsers.map((user: any) => (
+                                <AdminUserRow key={user.id} user={user} updateUserRole={updateUserRole} suspendUser={suspendUser} setUsers={setUsers} askConfirm={askConfirm} />
+                            )) : <AdminEmptyState title="No matching users" detail="Try another name, email address or account role." />}
+                        </Panel>
+                    </div>
+                )}
+
+                {section === 'drivers' && (
+                    <div className="admin-section-layout">
+                        <div className="admin-section-summary-grid">
+                            <AdminMetric label="Registered drivers" value={driverCount} detail="Driver profiles" icon={CarFront} tone="green" />
+                            <AdminMetric label="Verified drivers" value={verifiedDriverCount} detail="Approved for operations" icon={ShieldCheck} tone="amber" />
+                            <AdminMetric label="Awaiting review" value={pendingApplications.length} detail="Verification applications" icon={FileCheck2} tone="navy" />
+                        </div>
+                        <Panel title="Verification applications" eyebrow="DOCUMENT REVIEW" className="admin-section-panel">
+                            <div className="admin-list-toolbar">
+                                <div className="search-box"><Search size={17} /><input aria-label="Search verification applications" placeholder="Search by name, phone or operating area" value={search} onChange={event => setSearch(event.target.value)} /></div>
+                                <span>{filteredApplications.length} application{filteredApplications.length === 1 ? '' : 's'}</span>
+                            </div>
+                            {adminLoading ? <AdminEmptyState title="Loading applications" detail="Retrieving submitted verification records." /> : filteredApplications.length ? filteredApplications.map((application: any) => (
+                                <DriverVerificationApplication key={application.id} application={application} notify={notify} onRefresh={loadAdminData} />
+                            )) : <AdminEmptyState title="No matching applications" detail="No verification applications match this search." />}
+                        </Panel>
+                        <Panel title="Registered driver directory" eyebrow="DRIVER NETWORK" className="admin-section-panel">
+                            <div className="admin-list-toolbar">
+                                <div className="search-box"><Search size={17} /><input aria-label="Search registered drivers" placeholder="Search driver name, phone or vehicle" value={search} onChange={event => setSearch(event.target.value)} /></div>
+                                <span>{filteredDrivers.length} driver{filteredDrivers.length === 1 ? '' : 's'}</span>
+                            </div>
+                            {filteredDrivers.length ? filteredDrivers.map((driver: Driver) => (
+                                <DriverAdminRow key={driver.id} driver={driver} approve={() => approveDriver(driver)} />
+                            )) : <AdminEmptyState title="No matching drivers" detail="Try another name, phone number or vehicle detail." />}
+                        </Panel>
+                    </div>
+                )}
+
+                {section === 'rides' && (
+                    <div className="admin-section-layout">
+                        <div className="admin-section-summary-grid">
+                            <AdminMetric label="All rides" value={rides.length} detail="Recorded ride requests" icon={Activity} tone="green" />
+                            <AdminMetric label="Active rides" value={activeRides.length} detail="Currently in the ride lifecycle" icon={Navigation} tone="amber" />
+                            <AdminMetric label="Completed rides" value={completedRides.length} detail="Completed journeys" icon={CheckCircle2} tone="navy" />
+                        </div>
+                        <Panel title="Ride management" eyebrow="TRIP OPERATIONS" className="admin-section-panel">
+                            <div className="admin-list-toolbar admin-ride-filters">
+                                <div className="search-box"><Search size={17} /><input aria-label="Search rides" placeholder="Search passenger, driver, route or ride ID" value={search} onChange={event => setSearch(event.target.value)} /></div>
+                                <select aria-label="Filter rides by status" value={rideFilter} onChange={event => setRideFilter(event.target.value)}>
+                                    <option value="all">All statuses</option>
+                                    <option value="requested">Requested</option>
+                                    <option value="accepted">Accepted</option>
+                                    <option value="in progress">In progress</option>
+                                    <option value="completed">Completed</option>
+                                    <option value="cancelled">Cancelled</option>
+                                </select>
+                            </div>
+                            <div className="admin-list-result-count">Showing {filteredRides.length} of {rides.length} ride records</div>
+                            {filteredRides.length ? filteredRides.map((ride: Ride) => <RideAdminRow key={ride.id} ride={ride} />) : (
+                                <AdminEmptyState title="No matching rides" detail="Change the search terms or status filter to see other rides." />
+                            )}
+                        </Panel>
+                    </div>
+                )}
+
+                {section === 'reports' && (
+                    <div className="admin-section-layout">
+                        <div className="admin-section-summary-grid">
+                            <AdminMetric label="All reports" value={incidents.length} detail="Incident records received" icon={MessageSquareWarning} tone="green" />
+                            <AdminMetric label="Open reports" value={openIncidentCount} detail="Not marked resolved or closed" icon={AlertTriangle} tone="amber" />
+                            <AdminMetric label="Resolved / closed" value={incidents.length - openIncidentCount} detail="Records with a closed status" icon={CheckCircle2} tone="navy" />
+                        </div>
+                        <Panel title="Complaints and incidents" eyebrow="SAFETY QUEUE" className="admin-section-panel">
+                            <div className="admin-report-intro"><AlertTriangle size={19} aria-hidden="true" /><div><strong>Incident review</strong><p>Review submitted safety reports and record additional operational incidents.</p></div></div>
+                            <form className="admin-report-form" onSubmit={async event => {
+                                event.preventDefault();
+                                if (!reportText.trim()) return;
+                                try {
+                                    await api.post('/api/incidents', { type: 'admin-report', message: reportText.trim() });
+                                    setReportText('');
+                                    await loadAdminData();
+                                    notify('Incident recorded');
+                                } catch {
+                                    notify('Incident could not be recorded');
+                                }
+                            }}>
+                                <label htmlFor="admin-report-details">Record an operational incident</label>
+                                <textarea id="admin-report-details" value={reportText} onChange={event => setReportText(event.target.value)} placeholder="Enter the incident details and relevant context…" rows={3} />
+                                <button className="primary-button" type="submit" disabled={!reportText.trim() || adminLoading}>Record incident</button>
+                            </form>
+                            <div className="admin-list-toolbar">
+                                <strong>Incident register</strong>
+                                <div className="search-box"><Search size={17} /><input aria-label="Search incidents" placeholder="Search incidents" value={search} onChange={event => setSearch(event.target.value)} /></div>
+                            </div>
+                            {adminLoading ? <AdminEmptyState title="Loading incidents" detail="Retrieving the latest incident records." /> : filteredIncidents.length ? filteredIncidents.map((incident: any) => (
+                                <div className="ride-row admin-incident-row" key={incident.id}>
+                                    <div><strong>{incident.type || 'Incident'}</strong><span>{incident.message || 'No details supplied'} · {incident.createdAt ? new Date(incident.createdAt).toLocaleString() : 'Date unavailable'}</span></div>
+                                    <span className={'ride-status ' + String(incident.severity || incident.status || 'normal').toLowerCase()}>{incident.severity || incident.status || 'Open'}</span>
+                                </div>
+                            )) : <AdminEmptyState title="No matching incidents" detail="There are no incident records matching this search." />}
+                        </Panel>
+                    </div>
+                )}
+
+                {section === 'payments' && (
+                    <div className="admin-section-layout">
+                        <div className="admin-section-summary-grid">
+                            <AdminMetric label="Payment records" value={payments.length} detail="Transactions returned by the API" icon={CreditCard} tone="green" />
+                            <AdminMetric label="Paid records" value={paidPayments.length} detail="Confirmed paid or successful status" icon={CheckCircle2} tone="amber" />
+                            <AdminMetric label="Recorded paid value" value={`₦${paidPaymentValue.toLocaleString()}`} detail="Sum of confirmed payment amounts" icon={Landmark} tone="navy" />
+                        </div>
+                        <Panel title="Payment register" eyebrow="FINANCIAL AUDIT" className="admin-section-panel">
+                            <p className="admin-panel-intro">Payment status is displayed from the records returned by the payment service. The amount shown is recorded payment value, not a calculation of driver earnings.</p>
+                            <div className="admin-list-toolbar">
+                                <div className="search-box"><Search size={17} /><input aria-label="Search payment records" placeholder="Search payment method, ride ID or status" value={search} onChange={event => setSearch(event.target.value)} /></div>
+                                <span>{filteredPayments.length} record{filteredPayments.length === 1 ? '' : 's'}</span>
+                            </div>
+                            {adminLoading ? <AdminEmptyState title="Loading payments" detail="Retrieving payment records." /> : filteredPayments.length ? filteredPayments.map((payment: any) => (
+                                <div className="ride-row admin-payment-row" key={payment.id}>
+                                    <div><strong>{payment.method || 'Payment'}</strong><span>Ride {payment.rideId || '—'} · {payment.createdAt ? new Date(payment.createdAt).toLocaleString() : 'Date unavailable'}</span></div>
+                                    <b>₦{Number(payment.amount || 0).toLocaleString()}</b>
+                                    <span className={'ride-status ' + String(payment.status || 'Pending').toLowerCase()}>{payment.status || 'Pending'}</span>
+                                </div>
+                            )) : <AdminEmptyState title="No payment records" detail="Payment records will appear here when returned by the payment service." />}
+                        </Panel>
+                    </div>
+                )}
+
+                {section === 'settings' && (
+                    <div className="admin-section-layout">
+                        <Panel title="Platform configuration" eyebrow="SERVICE STATUS" className="admin-section-panel">
+                            <div className="admin-settings-list">
+                                <div className="settings-row"><Shield size={19} /><div><strong>Safety policy</strong><span>SOS events are stored against trip records.</span></div><CheckCircle2 size={18} /></div>
+                                <div className="settings-row"><CreditCard size={19} /><div><strong>Payments</strong><span>Passenger payments use Paystack checkout and server-side verification.</span></div><CheckCircle2 size={18} /></div>
+                                <div className="settings-row"><Bell size={19} /><div><strong>Notifications</strong><span>Ride and safety notification delivery is configured through the platform.</span></div><CheckCircle2 size={18} /></div>
+                            </div>
+                        </Panel>
+                        <Panel title="Account administration" eyebrow="PROTECTED ACTIONS" className="admin-section-panel">
+                            <div className="danger-panel admin-danger-panel">
+                                <div><strong>Reset non-superadmin accounts</strong><span>Delete every Tridash and Firebase account except the protected superadmin account. This action is irreversible.</span></div>
+                                <button className="secondary-button danger-button" type="button" onClick={async () => {
+                                    const first = await askConfirm('Delete other users?', 'This will delete every Tridash and Firebase account except the protected superadmin account.', 'Delete accounts');
+                                    if (!first) return;
+                                    const second = await askConfirm('Final confirmation', 'This action cannot be undone. Continue deleting the other accounts?', 'Yes, delete them');
+                                    if (!second) return;
+                                    try {
+                                        const result = await api.post('/api/admin/reset-users');
+                                        notify((result.data?.deletedFirebaseUsers || 0) + ' other user account(s) deleted.');
+                                        setUsers([]);
+                                    } catch (error: any) {
+                                        notify(error?.message || 'User reset could not be completed.');
+                                    }
+                                }}>Delete other users</button>
+                            </div>
+                        </Panel>
+                    </div>
+                )}
+            </section>
+        </div>
+    );
 }
+
+function AdminMetric({ label, value, detail, icon: Icon, tone }: any) {
+    return (
+        <article className={`admin-metric-card is-${tone}`}>
+            <span className="admin-metric-icon"><Icon size={18} aria-hidden="true" /></span>
+            <span className="admin-metric-label">{label}</span>
+            <strong>{value}</strong>
+            <small>{detail}</small>
+        </article>
+    );
+}
+
+function AdminEmptyState({ title, detail }: { title: string; detail: string }) {
+    return (
+        <div className="admin-empty-state">
+            <span><Activity size={19} aria-hidden="true" /></span>
+            <div><strong>{title}</strong><p>{detail}</p></div>
+        </div>
+    );
+}
+
 function Stat({ label, value, icon: Icon }: any) { return <div className="stat-card"><Icon size={19} /><span>{label}</span><strong>{value}</strong></div> }
-function Panel({ title, eyebrow, children }: any) { return <section className="admin-panel"><div className="panel-head"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div></div>{children}</section> }
+function Panel({ title, eyebrow, children, className = '' }: any) { return <section className={`admin-panel ${className}`}><div className="panel-head"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div></div>{children}</section> }
 function AdminUserRow({ user, updateUserRole, suspendUser, setUsers, askConfirm }: any) { const suspended = user.status === 'suspended'; const [saving, setSaving] = useState(false); const changeRole = async (nextRole: Role) => { if (nextRole === user.role) return; const confirmed = await askConfirm('Change account role?', 'Change ' + (user.name || user.email) + ' to ' + nextRole + '? This changes the workspace permissions available to the account.', 'Change role'); if (!confirmed) return; setSaving(true); if (await updateUserRole(user.id, nextRole)) setUsers((x: any[]) => x.map(item => item.id === user.id ? { ...item, role: nextRole } : item)); setSaving(false) }; const toggleStatus = async () => { const nextSuspended = !suspended; if (nextSuspended) { const confirmed = await askConfirm('Suspend account?', 'Suspend ' + (user.name || user.email) + '? They will be blocked from protected Tridash actions.', 'Suspend account'); if (!confirmed) return; } setSaving(true); if (await suspendUser(user.id, nextSuspended)) setUsers((x: any[]) => x.map(item => item.id === user.id ? { ...item, status: nextSuspended ? 'suspended' : 'active' } : item)); setSaving(false) }; return <div className="driver-row user-admin-row"><div className="avatar">{String(user.name || user.email).slice(0, 2).toUpperCase()}</div><div className="driver-info"><strong>{user.name || 'Unnamed user'}</strong><span>{user.email}</span><small className={'user-account-state ' + (suspended ? 'is-suspended' : '')}>{suspended ? 'Suspended account' : user.emailVerified ? 'Verified account' : 'Email not verified'}</small></div>{!user.isSuperAdmin && <div className="user-controls"><div className="user-control"><label>Role</label><select disabled={saving} value={user.role} onChange={e => changeRole(e.target.value as Role)}><option value="passenger">Passenger</option><option value="driver">Driver</option><option value="admin">Admin</option></select></div><div className="user-control"><label>Account</label><button className={'secondary-button compact user-status-button ' + (suspended ? 'reactivate' : 'suspend')} disabled={saving} onClick={toggleStatus}>{saving ? 'Saving…' : suspended ? 'Reactivate' : 'Suspend'}</button></div></div>}{user.isSuperAdmin && <span className="superadmin-badge">Superadmin protected</span>}</div> }
 function DriverVerificationApplication({ application, notify, onRefresh }: any) {
     const [notes, setNotes] = useState<Record<string, string>>({});
@@ -2174,6 +2765,6 @@ function DriverVerificationApplication({ application, notify, onRefresh }: any) 
 function DriverAdminRow({ driver, approve }: any) { return <div className="driver-row"><div className="avatar">{driver.name.split(' ').map((n: string) => n[0]).join('')}</div><div className="driver-info"><strong>{driver.name}</strong><span>{driver.phone} · {driver.tricycle}</span></div><div className="doc-status"><FileCheck2 size={15} /> {driver.verified ? 'Verified' : 'Documents submitted'}</div>{!driver.verified && <button className="primary-button compact" onClick={approve}>Approve</button>}</div> }
 function RideAdminRow({ ride }: any) { return <div className="ride-row"><div><strong>{ride.passenger}</strong><span>{ride.pickup} → {ride.destination}</span></div><span className={'ride-status ' + ride.status.toLowerCase().replace(/ /g, '-')}>{ride.status}</span></div> }
 
-function BottomNav({ tab, setTab, driver = false }: any) { return <nav className={'bottom-nav ' + (driver ? 'driver-bottom-nav' : '')}><button className={tab === 'home' ? 'nav-active' : ''} onClick={() => setTab('home')}><Home size={19} /><span>Home</span></button><button className={tab === 'requests' || tab === 'trips' ? 'nav-active' : ''} onClick={() => setTab(driver ? 'requests' : 'trips')}><Activity size={19} /><span>{driver ? 'Requests' : 'Trips'}</span></button>{!driver && <button className="ride-action" onClick={() => setTab('request')}><CarFront size={20} /></button>}<button className={tab === 'safety' ? 'nav-active' : ''} onClick={() => setTab(driver ? 'trips' : 'safety')}><ShieldAlert size={19} /><span>{driver ? 'History' : 'Safety'}</span></button><button className={tab === 'profile' ? 'nav-active' : ''} onClick={() => setTab('profile')}><UserRound size={19} /><span>Profile</span></button></nav> }
+function BottomNav({ tab, setTab, driver = false }: any) { return <nav className={'bottom-nav ' + (driver ? 'driver-bottom-nav' : '')}><button className={tab === 'home' ? 'nav-active' : ''} onClick={() => setTab('home')}><Home size={19} /><span>Home</span></button><button className={(driver ? tab === 'requests' : tab === 'trips') ? 'nav-active' : ''} onClick={() => setTab(driver ? 'requests' : 'trips')}><Activity size={19} /><span>{driver ? 'Requests' : 'Trips'}</span></button>{!driver && <button className="ride-action" onClick={() => setTab('request')}><CarFront size={20} /></button>}<button className={(driver ? tab === 'trips' : tab === 'safety') ? 'nav-active' : ''} onClick={() => setTab(driver ? 'trips' : 'safety')}><ShieldAlert size={19} /><span>{driver ? 'History' : 'Safety'}</span></button><button className={tab === 'profile' ? 'nav-active' : ''} onClick={() => setTab('profile')}><UserRound size={19} /><span>Profile</span></button></nav> }
 
 export default App;
