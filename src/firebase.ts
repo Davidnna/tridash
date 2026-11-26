@@ -26,8 +26,8 @@ const firebaseConfig = {
     measurementId: 'G-DHH44PCWCN'
 };
 
-const app = initializeApp(firebaseConfig);
-export const firebaseAuth = getAuth(app);
+export const firebaseApp = initializeApp(firebaseConfig);
+export const firebaseAuth = getAuth(firebaseApp);
 
 export async function signInWithFirebase(email: string, password: string) {
     return (await signInWithEmailAndPassword(firebaseAuth, email, password)).user;

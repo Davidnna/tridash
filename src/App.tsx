@@ -9,7 +9,7 @@ import { firebaseAuth, onAuthStateChanged, resendVerification, refreshFirebaseUs
 import {
     Activity, AlertTriangle, ArrowUp, Bell, CarFront, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3,
     CreditCard, FileCheck2, History, Home, Landmark, LogOut, MapPin, MessageSquareWarning,
-    Navigation, Phone, Search, Settings, Shield, ShieldAlert, ShieldCheck, Star, RefreshCw,
+    Navigation, Phone, Search, Settings, Shield, ShieldAlert, ShieldCheck, Star, RefreshCw, Truck,
     UserRound, Users, X, Zap
 } from 'lucide-react';
 
@@ -28,7 +28,7 @@ type Ride = {
     status: RideStatus;
     amount: number;
     paymentStatus?: 'Pending' | 'Paid' | 'Failed';
-    paymentMethod?: string;
+    paymentMethod?: 'Cash' | 'Paystack' | string;
     rating?: number;
     review?: string;
     passengerPhone?: string;
@@ -53,7 +53,7 @@ type Driver = {
     id: string;
     userId?: string;
     name: string;
-    phone: string;
+    phone?: string;
     rating: number;
     verified: boolean;
     online: boolean;
@@ -69,7 +69,13 @@ type Driver = {
     licenseStatus?: string;
     vehicleStatus?: string;
     faceStatus?: string;
-    status?: 'active' | 'suspended' | 'pending';
+    status?: 'active' | 'suspended' | 'inactive' | 'pending';
+    ratingCount?: number;
+    vehicleActive?: boolean;
+    vehicleMake?: string;
+    vehicleModel?: string;
+    vehicleColor?: string;
+    reviews?: Array<{ id: string; rating: number; review: string; createdAt: string; passengerName: string; pickup?: string; destination?: string }>;
 };
 
 type Profile = {
@@ -222,6 +228,12 @@ function App() {
     };
 
     const askConfirm = (title: string, message: string, confirmLabel = 'Continue') => new Promise<boolean>(resolve => setConfirmDialog({ title, message, confirmLabel, resolve }));
+    useEffect(() => notifications.onForegroundMessage(payload => {
+        const title = payload.notification?.title || 'Tridash update';
+        const body = payload.notification?.body || 'You have a new notification.';
+        notify(`${title}: ${body}`);
+    }), []);
+
 
     useEffect(() => {
         let mounted = true;
@@ -327,7 +339,7 @@ function App() {
                     const profileRole = profileRes.data.profile.role as Role | undefined;
                     setRole(authUser.role === 'admin' || authUser.role === 'driver' ? authUser.role : profileRole || authUser.role || 'passenger');
                 }
-                if (mounted && driverRes.data?.driver) setDriverProfile(driverRes.data.driver);
+                if (mounted && driverRes.data?.driver) setDriverProfile({ ...driverRes.data.driver, reviews: driverRes.data.reviews || [], vehicleActive: Boolean(driverRes.data.vehicleActive) });
                 if (mounted && Array.isArray(notificationsRes.data?.notifications)) setNotificationItems(notificationsRes.data.notifications);
             } catch (error: any) {
                 if (mounted) notify(error?.message || 'We could not load ride data. Please refresh to try again.');
@@ -506,7 +518,7 @@ function App() {
         finally { setProfileBusy(false); }
     };
 
-    const requestRide = async (pickup: string, destination: string, amount: number, pickupCoords?: { lat: number; lng: number }, destinationCoords?: { lat: number; lng: number }, rider?: { name: string; phone: string; bookedForSelf: boolean }) => {
+    const requestRide = async (pickup: string, destination: string, amount: number, pickupCoords?: { lat: number; lng: number }, destinationCoords?: { lat: number; lng: number }, rider?: { name: string; phone: string; bookedForSelf: boolean }, paymentMethod: 'Cash' | 'Paystack' = 'Cash') => {
         if (!profile.phone.trim()) { notify('Add your phone number in Profile before booking a ride.'); setTab('profile'); return; }
         if (!rider?.phone?.trim()) { notify('A rider phone number is required before booking.'); return; }
         const ride: Ride = {
@@ -526,6 +538,7 @@ function App() {
             status: 'Requested',
             amount,
             paymentStatus: 'Pending',
+            paymentMethod,
             requestedAt: new Date().toISOString()
         };
         try {
@@ -612,23 +625,28 @@ function App() {
     const sendSOS = async () => {
         if (!activeRide) return;
         try {
-            await api.post('/api/incidents', { rideId: activeRide.id, type: 'SOS', severity: 'high', message: 'Passenger activated SOS', createdAt: new Date().toISOString() });
-            notify('SOS recorded. Operations and your emergency contact have been notified where notifications are enabled.');
+            const result = await api.post('/api/incidents', { rideId: activeRide.id, type: 'SOS', category: 'safety', severity: 'high', message: 'Passenger activated SOS' });
+            const contact = result.data?.emergencyContact;
+            const sms = result.data?.emergencyContactSms;
+            const operations = result.data?.operationsAlertCreated ? 'Administrator alert created.' : 'No administrator account was available to receive an in-app alert.';
+            const contactStatus = sms?.sent ? `SMS request accepted by the provider for ${contact?.name || 'your emergency contact'}.` : contact?.phone ? `SMS was not sent (${sms?.message || sms?.status || 'provider unavailable'}); call ${contact.phone} directly.` : 'No emergency contact is saved.';
+            notify(`SOS recorded. ${operations} ${contactStatus} Emergency services are not connected through Tridash.`);
         } catch { notify('SOS could not be recorded. Try again or call emergency services directly.'); }
     };
 
     const shareTrip = async () => {
         if (!activeRide) return;
         const text = 'Tridash trip: ' + activeRide.pickup + ' → ' + activeRide.destination + ' | Status: ' + activeRide.status + (activeRide.driver ? ' | Driver: ' + activeRide.driver : '');
+        let shareUrl = '';
         try {
             const res = await api.post('/api/trip-shares', { rideId: activeRide.id });
             const shareTarget = res.data?.url || '/?ride=' + encodeURIComponent(activeRide.id);
-            const sharePath = shareTarget.startsWith('/') ? shareTarget : '/' + shareTarget;
-            const shareUrl = new URL(sharePath, window.location.origin).href;
+            shareUrl = new URL(shareTarget, window.location.origin).href;
             if (navigator.share) await navigator.share({ title: 'Track my Tridash trip', text, url: shareUrl });
             else await navigator.clipboard.writeText(shareUrl + '\\n' + text);
-            notify('Trip tracking link ready to share');
-        } catch { try { await navigator.clipboard.writeText(text); notify('Trip details copied'); } catch { notify('Trip sharing is unavailable on this device'); } }
+            const sms = res.data?.emergencyContactSms;
+            notify(sms?.sent ? 'Trip link SMS request accepted by the provider; the link is also ready to share further.' : 'Trip tracking link ready to share. Emergency-contact SMS was not sent.');
+        } catch { try { await navigator.clipboard.writeText((shareUrl ? shareUrl + '\n' : '') + text); notify(shareUrl ? 'Trip link and details copied' : 'Trip details copied'); } catch { notify('Trip sharing is unavailable on this device'); } }
     };
 
     const payRide = async (ride: Ride) => {
@@ -644,6 +662,22 @@ function App() {
         }
     };
 
+    const confirmCashPayment = async (ride: Ride) => {
+        const confirmed = await askConfirm('Confirm cash collection', 'Confirm that you have received the full cash fare from the passenger.', 'Confirm cash received');
+        if (!confirmed) return;
+        try {
+            const result = await api.post(`/api/rides/${encodeURIComponent(ride.id)}/cash-payment/confirm`, {});
+            const updatedRide = result.data?.ride;
+            if (!updatedRide) throw new Error('Cash payment confirmation was not returned');
+            setRides(current => current.map(item => item.id === updatedRide.id ? updatedRide : item));
+            setActiveRide(current => current?.id === updatedRide.id ? updatedRide : current);
+            setSelectedRide(current => current?.id === updatedRide.id ? updatedRide : current);
+            notify('Cash collection confirmed and recorded.');
+        } catch (error: any) {
+            notify(error?.message || 'Cash collection could not be confirmed.');
+        }
+    };
+
     const approveDriver = async (driver: Driver) => {
         try { const res = await api.post('/api/admin/driver-verifications/' + driver.id + '/approve', {}); if (res.data?.driver) setDrivers(current => current.map(d => d.id === driver.id ? res.data.driver : d)); notify(driver.name + ' approved'); } catch (error: any) { notify(error?.message || 'Driver approval could not be saved. Complete all required document checks first.'); }
     };
@@ -652,17 +686,18 @@ function App() {
         try { const res = await api.put('/api/admin/users/' + userId, { role: nextRole }); if (res.data?.user) notify('User role updated to ' + nextRole); return true; } catch { notify('User role could not be changed.'); return false; }
     };
 
-    const suspendUser = async (userId: string, suspended: boolean) => {
-        try { await api.put('/api/admin/users/' + userId, { status: suspended ? 'suspended' : 'active' }); notify(suspended ? 'User suspended' : 'User reactivated'); return true; } catch { notify('User status could not be changed.'); return false; }
+    const suspendUser = async (userId: string, status: boolean | 'inactive') => {
+        const nextStatus = typeof status === 'string' ? status : status ? 'suspended' : 'active';
+        try { await api.put('/api/admin/users/' + userId, { status: nextStatus }); notify(nextStatus === 'inactive' ? 'User deactivated' : nextStatus === 'suspended' ? 'User suspended' : 'User reactivated'); return true; } catch { notify('User status could not be changed.'); return false; }
     };
 
     const toggleDriverOnline = async () => {
         if (!driverProfile) return notify('Complete your driver profile first.');
-        if (!driverProfile.verified) return notify('Your driver account must be verified before going online.');
+        if (!driverProfile.verified || driverProfile.status !== 'active' || driverProfile.vehicleStatus !== 'verified' || !driverProfile.vehicleActive) return notify('Your driver and tricycle must both be verified before going online.');
         const updated = { ...driverProfile, online: !driverProfile.online };
         setDriverProfile(updated);
         setDrivers(current => current.map(d => d.id === updated.id ? updated : d));
-        try { const res = await api.put('/api/driver/me', { online: updated.online }); if (res.data?.driver) setDriverProfile(res.data.driver); }
+        try { const res = await api.put('/api/driver/me', { online: updated.online }); if (res.data?.driver) setDriverProfile({ ...res.data.driver, vehicleActive: driverProfile.vehicleActive, reviews: driverProfile.reviews || [] }); }
         catch { setDriverProfile(driverProfile); notify('Your online status could not be saved.'); return; }
         notify(updated.online ? 'You are now online' : 'You are now offline');
     };
@@ -677,9 +712,9 @@ function App() {
 
     const acceptRide = async (ride: Ride) => {
         let currentDriver = driverProfile;
-        if (!currentDriver) { const response = await api.get('/api/driver/me').catch(() => ({ data: null })); currentDriver = response.data?.driver || null; if (currentDriver) setDriverProfile(currentDriver); }
+        if (!currentDriver) { const response = await api.get('/api/driver/me').catch(() => ({ data: null })); currentDriver = response.data?.driver ? { ...response.data.driver, reviews: response.data.reviews || [], vehicleActive: Boolean(response.data.vehicleActive) } : null; if (currentDriver) setDriverProfile(currentDriver); }
         if (!currentDriver) return notify('Driver profile not found. Please refresh your driver workspace.');
-        if (!currentDriver.verified) return notify('Your driver profile is still awaiting verification.');
+        if (!currentDriver.verified || currentDriver.status !== 'active' || currentDriver.vehicleStatus !== 'verified' || !currentDriver.vehicleActive) return notify('Your driver and tricycle must both be verified before accepting a request.');
         if (!currentDriver.online) return notify('Go online before accepting a passenger request.');
         try {
             const latestResponse = await api.get('/api/rides');
@@ -707,7 +742,7 @@ function App() {
             await notifications.subscribe();
             setNotificationsEnabled(true);
             notify('Notifications enabled');
-        } catch { notify('Notifications could not be enabled on this device'); }
+        } catch (error: any) { notify(error?.message || 'Notifications could not be enabled on this device'); }
     };
 
     useEffect(() => {
@@ -739,7 +774,7 @@ function App() {
     const requests = rides.filter(r => r.status === 'Requested');
     const pendingDrivers = drivers.filter(d => !d.verified);
 
-    const renderPassenger = (routeTab: Tab) => <PassengerWorkspace tab={routeTab} setTab={setTab} profile={profile} activeRide={activeForPassenger} myTrips={myTrips} requestRide={requestRide} cancelRide={cancelRide} sendSOS={sendSOS} shareTrip={shareTrip} driverLocation={driverLocation} payRide={payRide} paymentBusy={paymentBusy} saveProfile={saveProfile} profileBusy={profileBusy} notify={notify} showRating={showRating} setShowRating={setShowRating} rating={rating} setRating={setRating} review={review} setReview={setReview} submitRating={submitRating} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} selectedRide={selectedRide} setSelectedRide={setSelectedRide} />;
+    const renderPassenger = (routeTab: Tab) => <PassengerWorkspace drivers={drivers} tab={routeTab} setTab={setTab} profile={profile} activeRide={activeForPassenger} myTrips={myTrips} requestRide={requestRide} cancelRide={cancelRide} sendSOS={sendSOS} shareTrip={shareTrip} driverLocation={driverLocation} payRide={payRide} paymentBusy={paymentBusy} saveProfile={saveProfile} profileBusy={profileBusy} notify={notify} showRating={showRating} setShowRating={setShowRating} rating={rating} setRating={setRating} review={review} setReview={setReview} submitRating={submitRating} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} selectedRide={selectedRide} setSelectedRide={setSelectedRide} />;
     const renderDriver = (routeTab: Tab) => <DriverWorkspace tab={routeTab} setTab={setTab} driver={driverProfile || drivers.find(d => d.userId === authUser?.userId) || { id: 'pending-driver', userId: authUser?.userId, name: profile.name || authUser?.name || 'Driver', phone: profile.phone || '', rating: 0, verified: false, online: false, tricycle: '', documents: [], status: 'pending' }} requests={requests} activeRide={activeRide} rides={rides} updateRide={updateRide} acceptRide={acceptRide} rejectRide={rejectRide} toggleOnline={toggleDriverOnline} notify={notify} saveProfile={saveProfile} profile={profile} driverLocation={driverLocation} setDriverProfile={setDriverProfile} />;
 
     const publicContentPaths = ['/', '/about', '/how-it-works', '/safety-info', '/drive', '/faq', '/contact', '/privacy', '/terms'];
@@ -757,7 +792,7 @@ function App() {
     if (!authUser && !isPublicContentPath && !isAuthPath && !isPrivateAppPath) return <NotFoundPage />;
     if (!authReady || (Boolean(authUser) && loading)) return <div className="loading-screen"><div className="brand"><span className="brand-mark"><Zap size={18} /></span>tridash</div><p>Preparing your workspace…</p></div>;
     if (!authUser) return <AuthScreen busy={authBusy} onSignIn={signIn} onSignUp={signUp} onGoogleSignIn={signInGoogle} onResetPassword={resetPassword} />;
-    if (!authUser.emailVerified) return <VerificationScreen busy={authBusy} firebaseUser={authUser.firebaseUser} onVerified={async (refreshed: any) => { setAuthBusy(true); try { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } finally { setAuthBusy(false); } }} onRefresh={async () => { setAuthBusy(true); try { const refreshed = await refreshFirebaseUser(authUser.firebaseUser); if (refreshed?.emailVerified) { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } else { notify('Your email is not verified yet. Open the verification link, then try again.'); } } catch (error: any) { notify(error?.message || 'We could not refresh your verification status.'); } finally { setAuthBusy(false); } }} onResend={async () => { try { await resendVerification(authUser.firebaseUser); notify('Verification email sent again. Check spam or junk if you do not see it.'); } catch (error: any) { notify(error?.message || 'Unable to resend the verification email.'); } }} onSignOut={async () => { await api.post('/api/auth/logout').catch(() => { }); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); }} />;
+    if (!authUser.emailVerified) return <VerificationScreen busy={authBusy} firebaseUser={authUser.firebaseUser} onVerified={async (refreshed: any) => { setAuthBusy(true); try { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } finally { setAuthBusy(false); } }} onRefresh={async () => { setAuthBusy(true); try { const refreshed = await refreshFirebaseUser(authUser.firebaseUser); if (refreshed?.emailVerified) { await syncFirebaseSession(refreshed, authUser.role === 'driver' ? 'driver' : 'passenger'); notify('Email verified. Welcome to Tridash.'); } else { notify('Your email is not verified yet. Open the verification link, then try again.'); } } catch (error: any) { notify(error?.message || 'We could not refresh your verification status.'); } finally { setAuthBusy(false); } }} onResend={async () => { try { await resendVerification(authUser.firebaseUser); notify('Verification email sent again. Check spam or junk if you do not see it.'); } catch (error: any) { notify(error?.message || 'Unable to resend the verification email.'); } }} onSignOut={async () => { await notifications.unsubscribe().catch(() => { }); await api.post('/api/auth/logout').catch(() => { }); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); }} />;
     if (isAuthPath) return <Navigate replace to={authUser.role === 'admin' ? '/admin' : authUser.role === 'driver' ? '/driver' : '/'} />;
 
 
@@ -788,7 +823,7 @@ function App() {
                             <div className="notification-list">{notificationItems.length ? notificationItems.slice(0, 12).map(item => <button key={item.id} className={'notification-item ' + (item.read ? '' : 'unread')} onClick={() => markNotificationRead(item)}><span className="notification-icon"><Bell size={15} /></span><span className="notification-copy"><strong>{item.title}</strong><span>{item.body}</span><small>{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</small></span></button>) : <div className="notification-empty"><Bell size={20} /><span>No notifications yet.</span></div>}</div>
                         </div>}
                     </div>
-                    <button className="icon-button" title="Sign out" aria-label="Sign out" onClick={async () => { await api.post('/api/auth/logout').catch(() => { }); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); setRole('passenger'); setWorkspaceMode('rider'); setSelectedRide(null); navigate('/login', { replace: true }); notify('Signed out'); }}><LogOut size={18} /></button>
+                    <button className="icon-button" title="Sign out" aria-label="Sign out" onClick={async () => { await notifications.unsubscribe().catch(() => { }); await api.post('/api/auth/logout').catch(() => { }); await signOut(firebaseAuth); setAuthUser(null); setAuthReady(true); setRole('passenger'); setWorkspaceMode('rider'); setSelectedRide(null); navigate('/login', { replace: true }); notify('Signed out'); }}><LogOut size={18} /></button>
                 </div>
             </header>
             {role !== 'passenger' && menuOpen && <div className="role-menu" role="menu"><div className="eyebrow">SWITCH WORKSPACE</div>
@@ -808,7 +843,7 @@ function App() {
                     <Route path="driver" element={authUser?.role === 'driver' ? renderDriver('home') : <Navigate replace to="/" />} />
                     <Route path="driver/requests" element={authUser?.role === 'driver' ? renderDriver('requests') : <Navigate replace to="/" />} />
                     <Route path="driver/trips" element={authUser?.role === 'driver' ? renderDriver('trips') : <Navigate replace to="/" />} />
-                    <Route path="driver/trips/:rideId" element={authUser?.role === 'driver' ? <RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} backTarget="driver/trips" viewAsDriver /> : <Navigate replace to="/" />} />
+                    <Route path="driver/trips/:rideId" element={authUser?.role === 'driver' ? <RideRoute rides={rides} setSelectedRide={setSelectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} backTarget="driver/trips" viewAsDriver confirmCashPayment={confirmCashPayment} /> : <Navigate replace to="/" />} />
                     <Route path="driver/profile" element={authUser?.role === 'driver' ? renderDriver('profile') : <Navigate replace to="/" />} />
                     <Route path="admin" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} /> : renderPassenger('home')} />
                     <Route path="admin/users" element={workspaceMode === 'admin' ? <AdminWorkspace drivers={drivers} rides={rides} pendingDrivers={pendingDrivers} approveDriver={approveDriver} notify={notify} updateUserRole={updateUserRole} suspendUser={suspendUser} askConfirm={askConfirm} initialSection="users" /> : renderPassenger('home')} />
@@ -887,13 +922,13 @@ export function PublicSite() {
                         <div className="public-promise-item"><span className="public-promise-number">03</span><span><strong>Keep it on record</strong><small>Follow trip status and access your ride history.</small></span></div>
                     </div>
                 </section>
-                <section className="public-value-section"><div className="public-section-heading"><span className="public-kicker">BUILT AROUND YOUR JOURNEY</span><h2>Less uncertainty. More clarity.</h2><p>The essentials are easy to find before, during and after a ride.</p></div><div className="public-feature-grid"><article className="public-feature-card"><span className="public-feature-icon"><MapPin aria-hidden="true" /></span><h3>Set your trip</h3><p>Enter pickup and destination details before requesting a ride.</p></article><article className="public-feature-card"><span className="public-feature-icon"><ShieldCheck aria-hidden="true" /></span><h3>Driver review</h3><p>Driver onboarding includes identity, licence and vehicle-document review.</p></article><article className="public-feature-card"><span className="public-feature-icon"><CreditCard aria-hidden="true" /></span><h3>Online payments</h3><p>Pay through the supported online payment flow—Tridash does not offer cash rides.</p></article></div></section>
+                <section className="public-value-section"><div className="public-section-heading"><span className="public-kicker">BUILT AROUND YOUR JOURNEY</span><h2>Less uncertainty. More clarity.</h2><p>The essentials are easy to find before, during and after a ride.</p></div><div className="public-feature-grid"><article className="public-feature-card"><span className="public-feature-icon"><MapPin aria-hidden="true" /></span><h3>Set your trip</h3><p>Enter pickup and destination details before requesting a ride.</p></article><article className="public-feature-card"><span className="public-feature-icon"><ShieldCheck aria-hidden="true" /></span><h3>Driver review</h3><p>Driver onboarding includes identity, licence and vehicle-document review.</p></article><article className="public-feature-card"><span className="public-feature-icon"><CreditCard aria-hidden="true" /></span><h3>Flexible payment</h3><p>Choose cash paid directly to the driver or Paystack online payment after the trip.</p></article></div></section>
                 <section className="public-journey-section">
                     <div className="public-journey-heading"><span className="public-kicker">HOW YOUR RIDE COMES TOGETHER</span><h2>Three steps. One clearer journey.</h2><p>From choosing your route to checking your trip status, the essentials stay easy to follow.</p></div>
                     <div className="public-journey-grid">
                         <article className="public-journey-step"><span className="public-journey-number">01</span><div><MapPin size={22} aria-hidden="true" /><h3>Choose your route</h3><p>Enter your pickup and destination, then review your ride details before requesting.</p></div></article>
                         <article className="public-journey-step"><span className="public-journey-number">02</span><div><ShieldCheck size={22} aria-hidden="true" /><h3>Get driver details</h3><p>Once a verified driver accepts, review the available driver and vehicle information.</p></div></article>
-                        <article className="public-journey-step"><span className="public-journey-number">03</span><div><CreditCard size={22} aria-hidden="true" /><h3>Pay online, stay informed</h3><p>Use online payment and follow your trip status from your Tridash workspace.</p></div></article>
+                        <article className="public-journey-step"><span className="public-journey-number">03</span><div><CreditCard size={22} aria-hidden="true" /><h3>Choose how to pay</h3><p>Pay cash directly to the driver or use Paystack after the trip.</p></div></article>
                     </div>
                 </section>
                 <section className="public-driver-cta"><div><span className="public-kicker">FOR DRIVERS</span><h2>Ready to drive with Tridash?</h2><p>Start your driver application and complete the required details and verification steps.</p></div><a className="public-button public-button-light" href={appHref('/signup?role=driver')}>Start driver registration <ChevronRight size={18} aria-hidden="true" /></a></section>
@@ -901,14 +936,14 @@ export function PublicSite() {
             </> : <>
                 <section className="public-page-hero"><div className="public-page-hero-inner"><span className="public-kicker">{page?.eyebrow || 'TRIDASH'}</span><h1>{page?.title || 'Welcome to Tridash.'}</h1><p>{page?.intro || 'A clearer way to organise local rides.'}</p>{path === '/drive' && <a className="public-button" href={appHref('/signup?role=driver')}>Create a driver account <ChevronRight size={18} aria-hidden="true" /></a>}{path === '/contact' && <a className="public-button" href={appHref('/login')}>Sign in for account support <ChevronRight size={18} aria-hidden="true" /></a>}</div></section>
                 <section className="public-content-section">
-                    {path === '/about' && <><h2>What we’re building</h2><p>Tridash is a ride-hailing service designed around local tricycle trips. The goal is to give passengers a clear booking flow and give drivers a dedicated workspace for requests, trips and account verification.</p><h2>Designed for both sides of the trip</h2><p>Passengers can manage ride requests and trip details. Drivers can review requests, manage their availability after approval, and keep track of their rides.</p></>}
-                    {path === '/how-it-works' && <div className="public-steps-grid"><article><span>01</span><h2>Create an account</h2><p>Register as a passenger or choose the driver path if you want to apply to drive.</p></article><article><span>02</span><h2>Enter your trip</h2><p>Passengers provide pickup and destination details and review the available trip information.</p></article><article><span>03</span><h2>Confirm online payment</h2><p>Use the supported online payment flow. A ride is not paid for with cash.</p></article><article><span>04</span><h2>Follow the ride</h2><p>Use your trip page to review status and the assigned driver and vehicle details when available.</p></article></div>}
+                    {path === '/about' && <><h2>What we’re building</h2><p>Tridash is a ride-hailing service designed around local tricycle trips. Passengers can choose cash or supported online payment, while drivers have a dedicated workspace for requests, trips and account verification.</p><h2>Designed for both sides of the trip</h2><p>Passengers can manage ride requests and trip details. Drivers can review requests, manage their availability after approval, and keep track of their rides.</p></>}
+                    {path === '/how-it-works' && <div className="public-steps-grid"><article><span>01</span><h2>Create an account</h2><p>Register as a passenger or choose the driver path if you want to apply to drive.</p></article><article><span>02</span><h2>Enter your trip</h2><p>Passengers provide pickup and destination details and review the available trip information.</p></article><article><span>03</span><h2>Choose your payment</h2><p>Pay the driver in cash or complete Paystack checkout after the trip.</p></article><article><span>04</span><h2>Follow the ride</h2><p>Use your trip page to review status and the assigned driver and vehicle details when available.</p></article></div>}
                     {path === '/safety-info' && <><h2>Driver verification</h2><p>Drivers must complete the required onboarding and approval process before they can go online and accept rides. Document checks may include government identification, a driving licence and vehicle registration.</p><h2>Trip visibility</h2><p>Trip details help passengers recognise their assigned driver and vehicle. Use the in-app safety options if you need help during a trip.</p><h2>Location and privacy</h2><p>Location access should be used for features that need it, such as choosing a pickup or following an active trip. A home address is private account information and should not appear on the passenger-facing profile.</p><p className="public-notice"><ShieldCheck size={18} aria-hidden="true" /> Safety features and verification availability may depend on configured integrations and review status. Do not assume a document has been independently verified solely because it was uploaded.</p></>}
                     {path === '/drive' && <><h2>What you’ll need</h2><ul><li>Your personal and contact details.</li><li>Your home address for private account records.</li><li>Vehicle make, model, colour, registration number and operating area.</li><li>Required identity, driver’s licence and vehicle documents.</li><li>Any additional permits or insurance information requested during onboarding.</li></ul><h2>What happens next?</h2><p>Submit your information and documents for review. You must be approved before going online and accepting passenger requests.</p></>}
-                    {path === '/faq' && <div className="public-faq-list"><details><summary>Can I use Tridash without creating an account?</summary><p>You can browse these public pages without an account. You’ll need to sign in or create an account to use ride-booking and workspace features.</p></details><details><summary>Can I pay the driver in cash?</summary><p>No. Tridash is configured for online payments only.</p></details><details><summary>How can I become a driver?</summary><p>Choose “Become a driver”, create an account with the driver role, and complete the required personal, vehicle and verification details.</p></details><details><summary>Can I go online immediately after registering?</summary><p>No. Driver approval is required before a driver can go online and accept rides.</p></details><details><summary>Will passengers see my home address?</summary><p>No. A driver's home address is private account information and should not be displayed in passenger-facing trip details.</p></details><details><summary>What if I need help during a trip?</summary><p>Open your trip and use the available in-app safety options. For account-specific assistance, sign in to your Tridash workspace.</p></details></div>}
+                    {path === '/faq' && <div className="public-faq-list"><details><summary>Can I use Tridash without creating an account?</summary><p>You can browse these public pages without an account. You’ll need to sign in or create an account to use ride-booking and workspace features.</p></details><details><summary>Can I pay the driver in cash?</summary><p>Yes. Select cash when requesting your ride and pay the driver directly after the trip. The driver records cash collection in Tridash.</p></details><details><summary>How can I become a driver?</summary><p>Choose “Become a driver”, create an account with the driver role, and complete the required personal, vehicle and verification details.</p></details><details><summary>Can I go online immediately after registering?</summary><p>No. Driver approval is required before a driver can go online and accept rides.</p></details><details><summary>Will passengers see my home address?</summary><p>No. A driver's home address is private account information and should not be displayed in passenger-facing trip details.</p></details><details><summary>What if I need help during a trip?</summary><p>Open your trip and use the available in-app safety options. For account-specific assistance, sign in to your Tridash workspace.</p></details></div>}
                     {path === '/contact' && <><h2>Account and trip help</h2><p>Sign in to access your ride history, active trip information and the safety tools available in your workspace.</p><div className="public-contact-options"><a href={appHref('/login')}><UserRound aria-hidden="true" /><span><strong>Passenger or driver support</strong><small>Sign in to access your account and trip details.</small></span><ChevronRight aria-hidden="true" /></a><Link to="/safety-info"><ShieldCheck aria-hidden="true" /><span><strong>Safety information</strong><small>Review driver approval and trip safety guidance.</small></span><ChevronRight aria-hidden="true" /></Link></div><p className="public-muted-note">Official public support contact details will be published here when an official support channel is available.</p></>}
                     {path === '/privacy' && <><p><strong>Draft notice:</strong> This is a product-information summary, not a final legal privacy policy. Complete and legally review the policy before launch.</p><h2>Information the service may process</h2><ul><li>Account and contact details, such as name, email and phone number.</li><li>Trip details, including pickup, destination, status and payment status.</li><li>Location information when you use location-based ride features.</li><li>Driver verification documents and vehicle information submitted during onboarding.</li><li>Emergency contact details if you choose to provide them.</li></ul><h2>Why information is used</h2><p>Information is used to operate accounts, request and manage rides, support online payments, review driver applications, improve safety and respond to support needs.</p><h2>Sharing and access</h2><p>Information should be shared only as needed to operate the service—for example, relevant trip and vehicle details with the people involved in that trip, or required information with payment and verification providers. Access to sensitive documents and private account details should be restricted.</p><h2>Items to finalise before launch</h2><p>The operator must publish accurate retention periods, legal bases, data-subject request instructions, contact details, processor/vendor details and applicable jurisdiction-specific notices.</p></>}
-                    {path === '/terms' && <><p><strong>Draft notice:</strong> These service expectations are a starting point, not final legal terms. Review and approve the full terms before launch.</p><h2>Using Tridash</h2><p>Provide accurate account and trip information, keep account access secure, and use the service lawfully and respectfully.</p><h2>Ride requests and payments</h2><p>Review the trip details before confirming. Tridash is configured for online payments only. A payment should be treated as complete only after the payment provider and Tridash confirm it.</p><h2>Driver accounts</h2><p>Drivers must provide accurate personal and vehicle information, submit the required documents and receive approval before going online or accepting rides. Approval may be withheld or withdrawn when required checks are incomplete or an account violates service rules.</p><h2>Cancellations and safety</h2><p>Use the in-app controls to manage or cancel eligible trips. Follow safety guidance and report concerns through available service channels.</p><h2>Before public launch</h2><p>Publish complete rules for eligibility, fares, cancellations, refunds, complaints, prohibited conduct, account suspension, liability, governing law and support contact details.</p></>}
+                    {path === '/terms' && <><p><strong>Draft notice:</strong> These service expectations are a starting point, not final legal terms. Review and approve the full terms before launch.</p><h2>Using Tridash</h2><p>Provide accurate account and trip information, keep account access secure, and use the service lawfully and respectfully.</p><h2>Ride requests and payments</h2><p>Review the trip details and selected payment method before confirming. Paystack payments are complete only after provider verification. Cash payments are recorded when the assigned driver confirms collection.</p><h2>Driver accounts</h2><p>Drivers must provide accurate personal and vehicle information, submit the required documents and receive approval before going online or accepting rides. Approval may be withheld or withdrawn when required checks are incomplete or an account violates service rules.</p><h2>Cancellations and safety</h2><p>Use the in-app controls to manage or cancel eligible trips. Follow safety guidance and report concerns through available service channels.</p><h2>Before public launch</h2><p>Publish complete rules for eligibility, fares, cancellations, refunds, complaints, prohibited conduct, account suspension, liability, governing law and support contact details.</p></>}
                 </section>
             </>}
         </main>
@@ -1029,11 +1064,11 @@ function SharedTripRoute() {
     return <div className="mobile-frame"><div className="eyebrow">SHARED TRIP</div><h2 className="shared-trip-title">{state.ride.status}</h2><div className="status-card"><div className="status-icon"><Navigation size={24} /></div><div><strong>{state.ride.pickup} → {state.ride.destination}</strong><p>Estimated fare · ₦{Number(state.ride.amount || 0).toLocaleString()}</p></div></div><MapView pickup={state.ride.pickupCoords} destination={state.ride.destinationCoords} driverLocation={state.driver?.lastLocation || null} /><div className="driver-card"><div className="avatar">{String(state.driver?.name || state.ride.driver || 'TR').slice(0, 2).toUpperCase()}</div><div className="driver-info"><strong>{state.driver?.name || state.ride.driver || 'Driver pending'}</strong><span>{state.driver?.tricycle || 'Tridash driver'} · {state.ride.status}</span></div></div><p className="hint">This link is temporary and only shares the trip information needed for tracking.</p></div>;
 }
 
-function RideRoute({ rides, setSelectedRide, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips', viewAsDriver = false }: { rides: Ride[]; setSelectedRide: (ride: Ride | null) => void; payRide: any; paymentBusy: boolean; driverLocation: any; cancelRide?: any; backTarget?: string; viewAsDriver?: boolean }) {
+function RideRoute({ rides, setSelectedRide, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips', viewAsDriver = false, confirmCashPayment }: { rides: Ride[]; setSelectedRide: (ride: Ride | null) => void; payRide: any; paymentBusy: boolean; driverLocation: any; cancelRide?: any; backTarget?: string; viewAsDriver?: boolean; confirmCashPayment?: (ride: Ride) => Promise<void> }) {
     const { rideId } = useParams();
     const ride = rides.find(item => item.id === decodeURIComponent(rideId || ''));
     if (!ride) return <div className="mobile-frame"><div className="empty-card"><div className="empty-icon"><Search size={22} /></div><h2>Trip not found</h2><p>This trip is no longer available.</p><button className="primary-button" onClick={() => setSelectedRide(null)}>Return to trips</button></div></div>;
-    return <RideDetail ride={ride} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} backTarget={backTarget} viewAsDriver={viewAsDriver} />;
+    return <RideDetail ride={ride} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} backTarget={backTarget} viewAsDriver={viewAsDriver} confirmCashPayment={confirmCashPayment} />;
 }
 
 function AuthScreen({ busy, onSignIn, onSignUp, onGoogleSignIn, onResetPassword }: { busy: boolean; onSignIn: (email: string, password: string) => Promise<boolean>; onSignUp: (name: string, email: string, password: string, role: 'passenger' | 'driver') => Promise<boolean>; onGoogleSignIn: () => Promise<boolean>; onResetPassword: (email: string) => Promise<boolean> }) {
@@ -1132,7 +1167,7 @@ function VerificationScreen({ busy, firebaseUser, onVerified, onRefresh, onResen
 function PassengerWorkspace(props: any) {
     const navigate = useNavigate();
     const location = useLocation();
-    const { tab, setTab, profile, activeRide, myTrips, requestRide, cancelRide, sendSOS, shareTrip, payRide, paymentBusy, saveProfile, profileBusy, notify, showRating, setShowRating, rating, setRating, review, setReview, submitRating, notificationsEnabled, enableNotifications, selectedRide, setSelectedRide, driverLocation } = props;
+    const { tab, setTab, profile, activeRide, myTrips, drivers = [], requestRide, cancelRide, sendSOS, shareTrip, payRide, paymentBusy, saveProfile, profileBusy, notify, showRating, setShowRating, rating, setRating, review, setReview, submitRating, notificationsEnabled, enableNotifications, selectedRide, setSelectedRide, driverLocation } = props;
     const passengerTrips: Ride[] = Array.isArray(myTrips) ? myTrips : [];
     const recentTrips = passengerTrips
         .filter(ride => !activeRide || ride.id !== activeRide.id)
@@ -1151,7 +1186,7 @@ function PassengerWorkspace(props: any) {
     if (tab === 'request') return <RequestPageMap requestRide={requestRide} setTab={setTab} notify={notify} profile={profile} />;
     if (selectedRide) return <RideDetail ride={selectedRide} payRide={payRide} paymentBusy={paymentBusy} driverLocation={driverLocation} cancelRide={cancelRide} />;
     if (tab === 'trips') return <TripsPage trips={myTrips} setSelectedRide={setSelectedRide} />;
-    if (tab === 'safety') return <SafetyPage activeRide={activeRide} profile={profile} sendSOS={sendSOS} shareTrip={shareTrip} setTab={setTab} notify={notify} />;
+    if (tab === 'safety') return <SafetyPage activeRide={activeRide} myTrips={myTrips} profile={profile} sendSOS={sendSOS} shareTrip={shareTrip} setTab={setTab} notify={notify} />;
     if (tab === 'profile') return <ProfilePage profile={profile} saveProfile={saveProfile} profileBusy={profileBusy} notificationsEnabled={notificationsEnabled} enableNotifications={enableNotifications} setTab={setTab} />;
 
     return (
@@ -1259,6 +1294,23 @@ function PassengerWorkspace(props: any) {
                         </button>
                     </section>
 
+                    <section className="passenger-quick-panel passenger-available-drivers">
+                        <div className="passenger-quick-heading">
+                            <span className="passenger-section-kicker">DRIVER NETWORK</span>
+                            <h2>Available drivers</h2>
+                            <p>Verified drivers currently online across the service area.</p>
+                        </div>
+                        {drivers.filter((driver: Driver) => driver.verified && driver.online && driver.status === 'active').slice(0, 4).map((driver: Driver) => (
+                            <div className="driver-card" key={driver.id}>
+                                <div className="avatar">{driver.name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase()}</div>
+                                <div className="driver-info"><strong>{driver.name}</strong><span>{driver.tricycle || [driver.vehicleMake, driver.vehicleModel].filter(Boolean).join(' ') || 'Tricycle operator'}</span><small><Star size={12} fill="currentColor" /> {driver.rating ? Number(driver.rating).toFixed(1) : 'New driver'} · {driver.ratingCount || 0} reviews</small></div>
+                                <span className="verified"><ShieldCheck size={13} /> Online</span>
+                            </div>
+                        ))}
+                        {!drivers.some((driver: Driver) => driver.verified && driver.online && driver.status === 'active') && <p className="driver-request-none">No verified drivers are online at the moment. You can still submit a request and wait for a driver to come online.</p>}
+                        <small className="hint">Availability is platform-wide; this list is not filtered by live distance.</small>
+                    </section>
+
                     <section className="passenger-trust-panel">
                         <span className="passenger-trust-icon"><ShieldCheck size={20} aria-hidden="true" /></span>
                         <div>
@@ -1331,7 +1383,7 @@ function ActiveRideCard({ ride, driverLocation, onClick }: any) {
 }
 function RoutePoint({ label, value, destination }: any) { return <div className="route-point"><span className={'dot ' + (destination ? 'destination-dot' : '')} /><div><small>{label}</small><strong>{value}</strong></div></div>; }
 
-function RideDetail({ ride, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips', viewAsDriver = false }: any) {
+function RideDetail({ ride, payRide, paymentBusy, driverLocation, cancelRide, backTarget = 'trips', viewAsDriver = false, confirmCashPayment }: any) {
     const navigate = useNavigate();
     const detailLocation = useLocation();
     const fromHome = new URLSearchParams(detailLocation.search).get('from') === 'home';
@@ -1356,8 +1408,10 @@ function RideDetail({ ride, payRide, paymentBusy, driverLocation, cancelRide, ba
         <div className="trip-details"><div><span>FROM</span><strong>{ride.pickup}</strong></div><div><span>TO</span><strong>{ride.destination}</strong></div></div>{ride.riderPhone && !viewAsDriver && <div className="trip-details"><div><span>RIDER</span><strong>{ride.riderName || ride.passenger}</strong></div><div><span>CONTACT</span><strong>{ride.riderPhone}</strong></div></div>}
         <div className="payment-box"><div><span>FARE</span><strong>₦{ride.amount.toLocaleString()}</strong></div><div><span>PAYMENT</span><strong>{ride.paymentStatus || 'Pending'}</strong></div></div>
         {ride.status !== 'Completed' && ride.status !== 'Cancelled' && cancelRide && <div className="payment-actions"><button className="secondary-button danger-button full" onClick={() => cancelRide(ride)}>Cancel ride</button></div>}
-        {ride.status === 'Completed' && ride.paymentStatus !== 'Paid' && !viewAsDriver && <div className="payment-actions"><button className="primary-button" disabled={paymentBusy} onClick={() => payRide(ride)}>{paymentBusy ? 'Opening secure checkout…' : 'Pay online with Paystack'}</button></div>}
-        {ride.status === 'Completed' && ride.paymentStatus !== 'Paid' && !viewAsDriver && <p className="hint">Online payment is securely processed by Paystack. Tridash verifies the transaction and exact fare before marking the ride paid.</p>}
+        {ride.status === 'Completed' && ride.paymentStatus !== 'Paid' && !viewAsDriver && ride.paymentMethod === 'Paystack' && <div className="payment-actions"><button className="primary-button" disabled={paymentBusy} onClick={() => payRide(ride)}>{paymentBusy ? 'Opening secure checkout…' : 'Pay online with Paystack'}</button></div>}
+        {ride.status === 'Completed' && ride.paymentStatus !== 'Paid' && !viewAsDriver && ride.paymentMethod === 'Cash' && <p className="hint">Pay the driver directly in cash. The driver will confirm collection in Tridash.</p>}
+        {ride.status === 'Completed' && ride.paymentStatus !== 'Paid' && viewAsDriver && ride.paymentMethod === 'Cash' && <div className="payment-actions"><button className="primary-button" onClick={() => confirmCashPayment?.(ride)}>Confirm cash received</button></div>}
+        {ride.paymentStatus === 'Paid' && <p className="hint">Payment recorded as paid via {ride.paymentMethod || 'the selected method'}.</p>}
     </div>;
 }
 
@@ -1406,7 +1460,7 @@ function TripsPage({ trips, setSelectedRide, workspace = 'rider' }: any) {
     );
 }
 
-function SafetyPage({ activeRide, profile, sendSOS, shareTrip, setTab, notify }: any) {
+function SafetyPage({ activeRide, myTrips, profile, sendSOS, shareTrip, setTab, notify }: any) {
     return (
         <div className="mobile-frame safety-page">
             <section className="screen-head">
@@ -1449,7 +1503,7 @@ function SafetyPage({ activeRide, profile, sendSOS, shareTrip, setTab, notify }:
                     <button className="secondary-button" disabled={!activeRide} onClick={shareTrip}>Share</button>
                 </div>
             </div>
-            <IncidentReportButton activeRide={activeRide} notify={notify} />
+            <IncidentReportButton activeRide={activeRide} myTrips={myTrips} notify={notify} />
         </div>
     );
 }
@@ -1501,22 +1555,34 @@ function ProfilePage({ profile, saveProfile, profileBusy, notificationsEnabled, 
     );
 }
 
-function IncidentReportButton({ activeRide, notify }: any) {
+function IncidentReportButton({ activeRide, myTrips = [], notify, reporterRole = 'passenger' }: any) {
     const [open, setOpen] = useState(false);
     const [message, setMessage] = useState('');
+    const [category, setCategory] = useState('other');
+    const reportableTrips = [activeRide, ...myTrips].filter((ride: any, index: number, all: any[]) => ride && all.findIndex((item: any) => item?.id === ride.id) === index);
+    const [rideId, setRideId] = useState(activeRide?.id || myTrips[0]?.id || '');
     const submit = async () => {
-        if (!activeRide) return;
         if (message.trim().length < 5) return notify('Describe the issue in a little more detail.');
+        if (reporterRole === 'passenger' && !rideId) return notify('Select the trip related to this report.');
+        const selectedRide = reportableTrips.find((ride: any) => ride.id === rideId);
+        const reportedUserId = reporterRole === 'driver' ? selectedRide?.passengerId : selectedRide?.driverId;
         try {
-            await api.post('/api/incidents', { rideId: activeRide.id, type: 'complaint', severity: 'normal', message: message.trim() });
+            await api.post('/api/incidents', {
+                rideId: rideId || undefined,
+                reportedUserId: reportedUserId || undefined,
+                type: reporterRole === 'driver' ? 'driver-report' : 'complaint',
+                category,
+                severity: 'normal',
+                message: message.trim()
+            });
             setMessage('');
             setOpen(false);
-            notify('Report submitted to Tridash operations');
-        } catch {
-            notify('Report could not be submitted');
+            notify('Report recorded. An in-app administrator alert was created where an active administrator account exists.');
+        } catch (error: any) {
+            notify(error?.message || 'Report could not be submitted');
         }
     };
-    return <><button className="secondary-button full" onClick={() => setOpen(true)} disabled={!activeRide}>Report an issue</button>{open && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-title"><button className="modal-close" aria-label="Close report" onClick={() => setOpen(false)}><X /></button><div className="eyebrow">SAFETY REPORT</div><h2 id="incident-title">Report an issue</h2><p>Tell Tridash operations what happened on this trip.</p><textarea autoFocus value={message} onChange={event => setMessage(event.target.value)} placeholder="Describe the issue…" /><div className="confirm-actions"><button className="secondary-button" onClick={() => setOpen(false)}>Cancel</button><button className="primary-button" onClick={submit}>Submit report</button></div></div></div>}</>;
+    return <><button className="secondary-button full" onClick={() => setOpen(true)} disabled={reporterRole === 'passenger' && !reportableTrips.length}>Report an issue</button>{open && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-title"><button className="modal-close" aria-label="Close report" onClick={() => setOpen(false)}><X /></button><div className="eyebrow">{reporterRole === 'driver' ? 'DRIVER REPORT' : 'SAFETY REPORT'}</div><h2 id="incident-title">Report an issue</h2><p>Describe the problem. Tridash will record it for administrator review.</p>{reportableTrips.length > 0 && <><label htmlFor="incident-trip">Related trip (optional for driver reports)</label><select id="incident-trip" value={rideId} onChange={event => setRideId(event.target.value)}><option value="">No specific trip</option>{reportableTrips.map((ride: any) => <option key={ride.id} value={ride.id}>{ride.pickup} → {ride.destination} · {ride.status}</option>)}</select></>}<label htmlFor="incident-category">Report category</label><select id="incident-category" value={category} onChange={event => setCategory(event.target.value)}><option value="other">Other</option><option value="safety">Safety concern</option><option value="conduct">Passenger/driver conduct</option><option value="vehicle">Vehicle issue</option><option value="route">Route or location</option><option value="payment">Payment dispute</option><option value="service">Service quality</option></select><textarea autoFocus value={message} onChange={event => setMessage(event.target.value)} placeholder="Describe the issue…" /><div className="confirm-actions"><button className="secondary-button" onClick={() => setOpen(false)}>Cancel</button><button className="primary-button" onClick={submit}>Submit report</button></div></div></div>}</>;
 }
 
 function RatingModal({ rating, setRating, review, setReview, submit, close }: any) {
@@ -1525,10 +1591,7 @@ function RatingModal({ rating, setRating, review, setReview, submit, close }: an
 
 function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, updateRide, acceptRide, rejectRide, toggleOnline, notify, saveProfile, profile, driverLocation, setDriverProfile }: any) {
     const driverName = String(driver?.name || profile?.name || 'Driver');
-    const belongsToDriver = (ride: Ride) => (
-        Boolean(driver?.userId && ride.driverId === driver.userId) ||
-        Boolean(ride.driver && ride.driver === driverName)
-    );
+    const belongsToDriver = (ride: Ride) => Boolean(driver?.userId && ride.driverId === driver.userId);
     const myDriverRides = rides.filter((ride: Ride) => belongsToDriver(ride));
     const completedDriverTrips = myDriverRides.filter((ride: Ride) => ride.status === 'Completed');
     const recentDriverTrips = [...myDriverRides]
@@ -1539,8 +1602,8 @@ function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, upd
         !(ride.rejectedByDriverIds || []).includes(driver?.id)
     ));
     const assignedActiveRide = myDriverRides.find((ride: Ride) => ['Accepted', 'In Progress'].includes(ride.status)) || (activeRide && belongsToDriver(activeRide) ? activeRide : null);
-    const hasPayoutAccount = Boolean(driver?.payoutSubaccountCode);
-    const canGoOnline = Boolean(driver?.verified && hasPayoutAccount);
+    const hasPayoutAccount = Boolean(driver?.payoutSubaccountCode && driver?.payoutAccountNumber && driver?.payoutBankCode);
+    const canGoOnline = Boolean(driver?.verified && driver?.status === 'active' && driver?.vehicleStatus === 'verified' && driver?.vehicleActive);
     const completedFareValue = completedDriverTrips.reduce((total: number, ride: Ride) => total + Number(ride.amount || 0), 0);
     const ratingValue = Number(driver?.rating || 0);
     const verificationState = String(driver?.verificationStatus || (driver?.verified ? 'verified' : 'pending')).toLowerCase();
@@ -1621,7 +1684,7 @@ function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, upd
                         {driver?.online ? 'Go offline' : 'Go online'}
                     </button>
                     {!canGoOnline && (
-                        <small>{!driver?.verified ? 'Complete driver verification to go online.' : 'Add a payout account to go online.'}</small>
+                        <small>{driver?.verified && driver?.status === 'active' ? 'Complete vehicle verification to go online.' : 'Complete driver verification to go online.'}</small>
                     )}
                 </div>
             </section>
@@ -1719,7 +1782,7 @@ function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, upd
                             <span className="driver-payout-icon"><Landmark size={18} aria-hidden="true" /></span>
                             <span className="driver-dashboard-section-kicker">ACTION REQUIRED</span>
                             <h3>Add your payout account</h3>
-                            <p>Connect your bank account before switching online and accepting rides.</p>
+                            <p>Add payout details to receive automatic Paystack split settlements. Cash rides do not require a payout account.</p>
                             <button className="primary-button full" type="button" onClick={() => setTab('profile')}>
                                 Add payout details <ChevronRight size={17} aria-hidden="true" />
                             </button>
@@ -1754,6 +1817,18 @@ function DriverWorkspace({ tab, setTab, driver, requests, activeRide, rides, upd
                             Open request queue <ChevronRight size={16} aria-hidden="true" />
                         </button>
                     </section>
+                    <section className="driver-side-card driver-reviews-panel">
+                        <div className="driver-dashboard-section-head"><div><span className="driver-dashboard-section-kicker">PASSENGER FEEDBACK</span><h3>Recent reviews</h3></div><span className="driver-request-count">{driver?.ratingCount || 0}</span></div>
+                        {(driver?.reviews || []).length ? driver.reviews.slice(0, 3).map((item: any) => (
+                            <article className="driver-review-row" key={item.id}>
+                                <div><strong>{item.passengerName || 'Passenger'}</strong><span>{new Date(item.createdAt).toLocaleDateString()}</span></div>
+                                <b><Star size={13} fill="currentColor" /> {item.rating}/5</b>
+                                {item.review && <p>{item.review}</p>}
+                                <small>{item.pickup || 'Pickup'} → {item.destination || 'Destination'}</small>
+                            </article>
+                        )) : <p className="driver-request-none">Passenger reviews will appear here after completed trips are rated.</p>}
+                    </section>
+                    <IncidentReportButton activeRide={assignedActiveRide} myTrips={myDriverRides} notify={notify} reporterRole="driver" />
                 </aside>
             </div>
 
@@ -1795,8 +1870,8 @@ function DriverActivityRow({ ride, onClick }: { ride: Ride; onClick: () => void 
 }
 
 function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, toggleOnline }: any) {
-    const hasPayoutAccount = Boolean(driver?.payoutSubaccountCode);
-    const canManage = !!driver?.verified && !!driver?.online && hasPayoutAccount;
+    const hasPayoutAccount = Boolean(driver?.payoutSubaccountCode && driver?.payoutAccountNumber && driver?.payoutBankCode);
+    const canManage = !!driver?.verified && driver?.status === 'active' && driver?.vehicleStatus === 'verified' && driver?.vehicleActive && !!driver?.online;
     const visibleRequests = requests.filter((ride: Ride) =>
         !(ride.rejectedByDriverIds || []).includes(driver?.userId) &&
         !(ride.rejectedByDriverIds || []).includes(driver?.id)
@@ -1815,13 +1890,15 @@ function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, togg
                 <div>
                     <strong>{driver?.online ? 'You are online' : 'You are offline'}</strong>
                     <span>
-                        {driver?.verified
-                            ? (driver?.online ? 'Passenger requests can be accepted or declined.' : 'Go online to manage requests.')
-                            : 'Your driver account must be verified before you can manage requests.'}
+                        {!driver?.verified || driver?.status !== 'active'
+                            ? 'Your driver account must be verified and active before you can manage requests.'
+                            : !driver?.vehicleActive || driver?.vehicleStatus !== 'verified'
+                                ? 'Your tricycle must be active and verified before you can manage requests.'
+                                : (driver?.online ? 'Passenger requests can be accepted or declined.' : 'Go online to manage requests.')}
                     </span>
                 </div>
-                {driver?.verified && (
-                    <button disabled={!hasPayoutAccount} onClick={toggleOnline}>{driver?.online ? 'Go offline' : 'Go online'}</button>
+                {driver?.verified && driver?.vehicleStatus === 'verified' && driver?.vehicleActive && driver?.status === 'active' && (
+                    <button onClick={toggleOnline}>{driver?.online ? 'Go offline' : 'Go online'}</button>
                 )}
             </div>
             {visibleRequests.length ? visibleRequests.map((ride: Ride) => (
@@ -1838,11 +1915,13 @@ function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, togg
                             <div className="request-readiness">
                                 {!driver?.verified
                                     ? 'Awaiting verification'
-                                    : !driver?.online
-                                        ? 'Go online to manage'
-                                        : !hasPayoutAccount
-                                            ? 'Add payout account'
-                                            : 'Ready'}
+                                    : !driver?.vehicleActive || driver?.vehicleStatus !== 'verified'
+                                        ? 'Vehicle verification required'
+                                        : !driver?.online
+                                            ? 'Go online to manage'
+                                        : (ride.paymentMethod !== 'Cash' && !hasPayoutAccount)
+                                            ? 'Payout account required for Paystack'
+                                            : ride.paymentMethod === 'Cash' ? 'Cash fare' : 'Ready'}
                             </div>
                         </div>
                         <div className="request-action-buttons">
@@ -1851,7 +1930,7 @@ function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, togg
                             </button>
                             <button
                                 className="primary-button"
-                                disabled={!canManage}
+                                disabled={!canManage || (ride.paymentMethod !== 'Cash' && !hasPayoutAccount)}
                                 onClick={async () => {
                                     const accepted = await acceptRide(ride);
                                     if (accepted) setTab('home');
@@ -1866,7 +1945,7 @@ function DriverRequests({ requests, driver, acceptRide, rejectRide, setTab, togg
                 <div className="empty-card">
                     <div className="empty-icon"><Clock3 size={22} /></div>
                     <h2>No requests yet</h2>
-                    <p>Stay online to receive nearby passenger requests.</p>
+                    <p>Stay online to receive passenger requests from the current Tridash service area.</p>
                 </div>
             )}
         </div>
@@ -1962,7 +2041,7 @@ function DriverProfilePage({ profile, driver, saveProfile, notify, setTab, setDr
             const driverPayload = { ...driverFields, phone: internationalPhone, homeAddress: form.homeAddress.trim() };
             const res = await api.put('/api/driver/me/verification', driverPayload);
             await saveProfile({ ...profile, name: [form.firstName, form.otherNames, form.lastName].filter(Boolean).join(' '), phone: internationalPhone, emergencyName: form.emergencyName.trim(), emergencyPhone: form.emergencyPhone.trim(), role: 'driver' });
-            if (res.data?.driver) { setSavedDriver(res.data.driver); setDriverProfile?.(res.data.driver); setProfileSaved(true); notify('Driver details saved. Upload the required documents next.'); }
+            if (res.data?.driver) { setSavedDriver(res.data.driver); setDriverProfile?.({ ...res.data.driver, vehicleActive: false }); setProfileSaved(true); notify('Driver details saved. Upload the required documents next.'); }
             await loadVerification();
         } catch (error: any) { notify(error?.message || 'Driver details could not be saved.'); }
         finally { setBusy(false); }
@@ -2263,6 +2342,17 @@ function PayoutAccountSection({ driver, notify }: any) {
 }
 
 function ActiveDriverRide({ ride, updateRide, notify, driverLocation }: any) {
+    const [reportOpen, setReportOpen] = useState(false);
+    const [reportMessage, setReportMessage] = useState('');
+    const submitDriverReport = async () => {
+        if (reportMessage.trim().length < 5) return notify('Describe the issue in at least five characters');
+        try {
+            await api.post('/api/incidents', { rideId: ride.id, type: 'driver-report', message: reportMessage.trim() });
+            setReportMessage('');
+            setReportOpen(false);
+            notify('Report recorded and operations alerted');
+        } catch (error: any) { notify(error?.message || 'Report could not be submitted'); }
+    };
     // Navigate to the pickup while the trip is still Accepted, then switch to the
     // destination once the passenger is on board.
     const navigatingToPickup = ride.status === 'Accepted';
@@ -2272,7 +2362,7 @@ function ActiveDriverRide({ ride, updateRide, notify, driverLocation }: any) {
         navigatingToPickup ? 'Your location' : ride.pickup,
         navigatingToPickup ? ride.pickup : ride.destination
     );
-    return <div className="driver-active"><div className="status-card"><div className="status-icon"><Navigation size={24} /></div><div><strong>{ride.status}</strong><p>{ride.pickup} → {ride.destination}</p></div></div><MapView pickup={ride.pickupCoords} destination={ride.destinationCoords} userLocation={driverLocation} driverLocation={driverLocation} followDriver /><div className="passenger-card"><div className="avatar">{String(ride.passenger || 'PA').slice(0, 2).toUpperCase()}</div><div><strong>{ride.passenger}</strong><span>Passenger · emergency support available</span></div>{ride.passengerPhone ? <a className="call-button" href={'tel:' + ride.passengerPhone} aria-label={'Call ' + ride.passenger}><Phone size={17} /></a> : <button className="call-button" aria-label="Passenger phone unavailable" onClick={() => notify('Passenger phone number is not available')}><Phone size={17} /></button>}</div><div className="safety-row"><button onClick={() => notify('Passenger safety contact opened')}><ShieldAlert size={18} /> Safety</button>{directionsUrl ? <a className="safety-link" href={directionsUrl} target="_blank" rel="noopener noreferrer"><Navigation size={18} /> {navigatingToPickup ? 'Navigate to pickup' : 'Navigate to drop-off'}</a> : <button onClick={() => notify('This trip has no navigation details yet')}><Navigation size={18} /> Navigate</button>}</div>{ride.status === 'Accepted' && <button className="primary-button full" onClick={() => updateRide(ride, 'In Progress', ride.driver || undefined, ride.driverId)}>Start trip</button>}{ride.status === 'In Progress' && <button className="primary-button full" onClick={() => updateRide(ride, 'Completed', ride.driver || undefined, ride.driverId)}>Complete trip</button>}</div>;
+    return <div className="driver-active"><div className="status-card"><div className="status-icon"><Navigation size={24} /></div><div><strong>{ride.status}</strong><p>{ride.pickup} → {ride.destination}</p></div></div><MapView pickup={ride.pickupCoords} destination={ride.destinationCoords} userLocation={driverLocation} driverLocation={driverLocation} followDriver /><div className="passenger-card"><div className="avatar">{String(ride.passenger || 'PA').slice(0, 2).toUpperCase()}</div><div><strong>{ride.passenger}</strong><span>Passenger · emergency support available</span></div>{ride.passengerPhone ? <a className="call-button" href={'tel:' + ride.passengerPhone} aria-label={'Call ' + ride.passenger}><Phone size={17} /></a> : <button className="call-button" aria-label="Passenger phone unavailable" onClick={() => notify('Passenger phone number is not available')}><Phone size={17} /></button>}</div><div className="safety-row"><button onClick={() => setReportOpen(true)}><ShieldAlert size={18} /> Report issue</button>{directionsUrl ? <a className="safety-link" href={directionsUrl} target="_blank" rel="noopener noreferrer"><Navigation size={18} /> {navigatingToPickup ? 'Navigate to pickup' : 'Navigate to drop-off'}</a> : <button onClick={() => notify('This trip has no navigation details yet')}><Navigation size={18} /> Navigate</button>}</div>{ride.status === 'Accepted' && <button className="primary-button full" onClick={() => updateRide(ride, 'In Progress', ride.driver || undefined, ride.driverId)}>Start trip</button>}{ride.status === 'In Progress' && <button className="primary-button full" onClick={() => updateRide(ride, 'Completed', ride.driver || undefined, ride.driverId)}>Complete trip</button>}{reportOpen && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="driver-report-title"><button className="modal-close" aria-label="Close report" onClick={() => setReportOpen(false)}><X /></button><div className="eyebrow">DRIVER SAFETY REPORT</div><h2 id="driver-report-title">Report a trip issue</h2><p>Describe a passenger, vehicle, route or safety concern. Operations will receive an in-app alert.</p><textarea value={reportMessage} onChange={event => setReportMessage(event.target.value)} placeholder="Describe what happened…" /><div className="confirm-actions"><button className="secondary-button" onClick={() => setReportOpen(false)}>Cancel</button><button className="primary-button" onClick={submitDriverReport}>Submit report</button></div></div></div>}</div>;
 }
 
 function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole, suspendUser, askConfirm, initialSection = 'overview' }: any) {
@@ -2286,6 +2376,11 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
     const [incidents, setIncidents] = useState<any[]>([]);
     const [payments, setPayments] = useState<any[]>([]);
     const [verificationApplications, setVerificationApplications] = useState<any[]>([]);
+    const [tricycles, setTricycles] = useState<any[]>([]);
+    const [incidentResolution, setIncidentResolution] = useState<Record<string, string>>({});
+    const [tricycleForm, setTricycleForm] = useState({ driverId: '', plateNumber: '', make: '', model: '', color: '', registrationDetails: '' });
+    const [platformSettings, setPlatformSettings] = useState<Record<string, any>>({});
+    const [overviewSummary, setOverviewSummary] = useState<any>(null);
     const [adminLoading, setAdminLoading] = useState(true);
     const [adminDataWarning, setAdminDataWarning] = useState('');
 
@@ -2307,16 +2402,22 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
                 api.get('/api/admin/users'),
                 api.get('/api/admin/incidents'),
                 api.get('/api/admin/payments'),
-                api.get('/api/admin/driver-verifications')
+                api.get('/api/admin/driver-verifications'),
+                api.get('/api/admin/tricycles'),
+                api.get('/api/admin/settings'),
+                api.get('/api/admin/overview')
             ]);
-            const [usersResult, incidentsResult, paymentsResult, verificationResult] = results;
+            const [usersResult, incidentsResult, paymentsResult, verificationResult, tricyclesResult, settingsResult, overviewResult] = results;
             const failures = results.flatMap((result, index) => result.status === 'rejected'
-                ? [['users', 'incidents', 'payments', 'driver verification'][index]]
+                ? [['users', 'incidents', 'payments', 'driver verification', 'tricycles', 'platform settings', 'aggregate overview'][index]]
                 : []);
             setUsers(usersResult.status === 'fulfilled' ? usersResult.value.data?.users || [] : []);
             setIncidents(incidentsResult.status === 'fulfilled' ? incidentsResult.value.data?.incidents || [] : []);
             setPayments(paymentsResult.status === 'fulfilled' ? paymentsResult.value.data?.payments || [] : []);
             setVerificationApplications(verificationResult.status === 'fulfilled' ? verificationResult.value.data?.applications || [] : []);
+            setTricycles(tricyclesResult.status === 'fulfilled' ? tricyclesResult.value.data?.tricycles || [] : []);
+            if (settingsResult.status === 'fulfilled') setPlatformSettings(Object.fromEntries((settingsResult.value.data?.settings || []).map((setting: any) => [setting.key, setting.value])));
+            if (overviewResult.status === 'fulfilled') setOverviewSummary(overviewResult.value.data?.overview || null);
             setAdminDataWarning(failures.length
                 ? `Some data sources could not be loaded: ${failures.join(', ')}. Dashboard figures may be incomplete.`
                 : '');
@@ -2335,15 +2436,15 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
     const normalizedSearch = search.trim().toLowerCase();
     const activeRides = rides.filter((ride: Ride) => !['Completed', 'Cancelled'].includes(ride.status));
     const completedRides = rides.filter((ride: Ride) => ride.status === 'Completed');
-    const passengerCount = users.filter(user => user.role === 'passenger').length;
-    const driverCount = drivers.length;
-    const verifiedDriverCount = drivers.filter((driver: Driver) => driver.verified).length;
+    const passengerCount = Number(overviewSummary?.passengers ?? users.filter(user => user.role === 'passenger').length);
+    const driverCount = Number(overviewSummary?.drivers ?? drivers.length);
+    const verifiedDriverCount = Number(overviewSummary?.verifiedDrivers ?? drivers.filter((driver: Driver) => driver.verified).length);
     const pendingApplications = verificationApplications.filter((application: any) => (
         !application.verified && !['approved', 'verified', 'rejected'].includes(String(application.verificationStatus || '').toLowerCase())
     ));
-    const openIncidentCount = incidents.filter((incident: any) => (
+    const openIncidentCount = Number(overviewSummary?.openIncidents ?? incidents.filter((incident: any) => (
         !['resolved', 'closed'].includes(String(incident.status || '').toLowerCase())
-    )).length;
+    )).length);
     const paidPayments = payments.filter((payment: any) => (
         ['paid', 'success', 'successful'].includes(String(payment.status || '').toLowerCase())
     ));
@@ -2377,7 +2478,8 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
         rides: 'Ride monitoring',
         reports: 'Reports & incidents',
         payments: 'Payment records',
-        settings: 'Platform settings'
+        settings: 'Platform settings',
+        tricycles: 'Tricycle management'
     };
     const sectionDescriptions: Record<string, string> = {
         overview: 'A live view of passenger activity, driver verification and ride operations.',
@@ -2386,12 +2488,14 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
         rides: 'Monitor requested, accepted, active, completed and cancelled journeys.',
         reports: 'Review safety reports and record operational incidents.',
         payments: 'Review payment records and amounts confirmed by the payment workflow.',
-        settings: 'Review platform controls and operational configuration.'
+        settings: 'Review platform controls and operational configuration.',
+        tricycles: 'Maintain the independent register of registered tricycles and their verification status.'
     };
     const navigationItems = [
         { key: 'overview', label: 'Overview', icon: Home },
         { key: 'users', label: 'Users', icon: Users },
         { key: 'drivers', label: 'Drivers', icon: ShieldCheck },
+        { key: 'tricycles', label: 'Tricycles', icon: Truck },
         { key: 'rides', label: 'Rides', icon: Activity },
         { key: 'reports', label: 'Reports', icon: MessageSquareWarning },
         { key: 'payments', label: 'Payments', icon: CreditCard },
@@ -2492,10 +2596,11 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
                         <div className="admin-metric-grid">
                             <AdminMetric label="Passengers" value={passengerCount} detail="Registered passenger accounts" icon={Users} tone="green" />
                             <AdminMetric label="Registered drivers" value={driverCount} detail={`${verifiedDriverCount} verified`} icon={CarFront} tone="amber" />
-                            <AdminMetric label="Active rides" value={activeRides.length} detail="Requested, accepted or in progress" icon={Activity} tone="navy" />
-                            <AdminMetric label="Pending verification" value={pendingApplications.length} detail="Applications awaiting review" icon={FileCheck2} tone="gold" />
-                            <AdminMetric label="Completed rides" value={completedRides.length} detail="Successfully completed" icon={CheckCircle2} tone="green" />
-                            <AdminMetric label="Open reports" value={openIncidentCount} detail={`${incidents.length} total incident records`} icon={AlertTriangle} tone="rose" />
+                            <AdminMetric label="Active rides" value={overviewSummary?.activeRides ?? activeRides.length} detail="Requested, accepted or in progress" icon={Activity} tone="navy" />
+                            <AdminMetric label="Pending verification" value={overviewSummary?.pendingDrivers ?? pendingApplications.length} detail="Applications awaiting review" icon={FileCheck2} tone="gold" />
+                            <AdminMetric label="Completed rides" value={overviewSummary?.completedRides ?? completedRides.length} detail="Successfully completed" icon={CheckCircle2} tone="green" />
+                            <AdminMetric label="Open reports" value={openIncidentCount} detail={`${incidents.length} loaded incident records`} icon={AlertTriangle} tone="rose" />
+                            <AdminMetric label="Registered tricycles" value={overviewSummary?.tricycles ?? tricycles.length} detail="Independent vehicle register" icon={Truck} tone="gold" />
                         </div>
 
                         <div className="admin-overview-grid">
@@ -2584,6 +2689,62 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
                     </div>
                 )}
 
+                {section === 'tricycles' && (
+                    <div className="admin-section-layout">
+                        <div className="admin-section-summary-grid">
+                            <AdminMetric label="Registered tricycles" value={tricycles.length} detail="Independent vehicle records" icon={Truck} tone="green" />
+                            <AdminMetric label="Verified vehicles" value={tricycles.filter((item: any) => item.verificationStatus === 'verified').length} detail="Vehicle records approved" icon={ShieldCheck} tone="amber" />
+                            <AdminMetric label="Suspended vehicles" value={tricycles.filter((item: any) => item.status === 'suspended').length} detail="Unavailable for operations" icon={AlertTriangle} tone="rose" />
+                        </div>
+                        <Panel title="Register a tricycle" eyebrow="NEW VEHICLE" className="admin-section-panel">
+                            <form className="admin-report-form" onSubmit={async event => {
+                                event.preventDefault();
+                                try {
+                                    await api.post('/api/admin/tricycles', tricycleForm);
+                                    setTricycleForm({ driverId: '', plateNumber: '', make: '', model: '', color: '', registrationDetails: '' });
+                                    await loadAdminData();
+                                    notify('Tricycle registered');
+                                } catch (error: any) { notify(error?.response?.data?.error || 'Tricycle could not be registered'); }
+                            }}>
+                                <label htmlFor="tricycle-driver">Assigned driver</label>
+                                <select id="tricycle-driver" required value={tricycleForm.driverId} onChange={event => setTricycleForm(current => ({ ...current, driverId: event.target.value }))}>
+                                    <option value="">Select a driver</option>
+                                    {drivers.map((driver: Driver) => <option key={driver.userId || driver.id} value={driver.userId || driver.id}>{driver.name} · {driver.phone}</option>)}
+                                </select>
+                                <div className="admin-form-grid">
+                                    <label>Plate number<input required value={tricycleForm.plateNumber} onChange={event => setTricycleForm(current => ({ ...current, plateNumber: event.target.value.toUpperCase() }))} /></label>
+                                    <label>Make<input required value={tricycleForm.make} onChange={event => setTricycleForm(current => ({ ...current, make: event.target.value }))} /></label>
+                                    <label>Model<input required value={tricycleForm.model} onChange={event => setTricycleForm(current => ({ ...current, model: event.target.value }))} /></label>
+                                    <label>Colour<input required value={tricycleForm.color} onChange={event => setTricycleForm(current => ({ ...current, color: event.target.value }))} /></label>
+                                </div>
+                                <label>Registration details<textarea rows={2} value={tricycleForm.registrationDetails} onChange={event => setTricycleForm(current => ({ ...current, registrationDetails: event.target.value }))} /></label>
+                                <button className="primary-button" type="submit" disabled={!tricycleForm.driverId || !tricycleForm.plateNumber || !tricycleForm.make || !tricycleForm.model || !tricycleForm.color}>Register vehicle</button>
+                            </form>
+                        </Panel>
+                        <Panel title="Registered tricycles" eyebrow="VEHICLE REGISTER" className="admin-section-panel">
+                            <div className="admin-list-toolbar">
+                                <div className="search-box"><Search size={17} /><input aria-label="Search tricycles" placeholder="Search plate, make, driver or status" value={search} onChange={event => setSearch(event.target.value)} /></div>
+                                <span>{tricycles.filter((item: any) => !normalizedSearch || JSON.stringify(item).toLowerCase().includes(normalizedSearch)).length} records</span>
+                            </div>
+                            {tricycles.filter((item: any) => !normalizedSearch || JSON.stringify(item).toLowerCase().includes(normalizedSearch)).map((item: any) => (
+                                <div className="ride-row" key={item.id}>
+                                    <div><strong>{item.plateNumber} · {item.make} {item.model}</strong><span>{item.color} · {item.driver?.name || 'Driver unavailable'} · {item.driver?.phone || 'No phone'}</span><div className="admin-form-grid"><input aria-label={'Plate number ' + item.id} defaultValue={item.plateNumber} onBlur={async event => { if (event.target.value.trim() && event.target.value.trim().toUpperCase() !== item.plateNumber) { try { await api.patch('/api/admin/tricycles/' + item.id, { plateNumber: event.target.value }); await loadAdminData(); notify('Vehicle plate updated'); } catch (error: any) { notify(error?.message || 'Vehicle plate could not be updated'); } } }} /><input aria-label={'Make ' + item.id} defaultValue={item.make} onBlur={async event => { if (event.target.value.trim() && event.target.value.trim() !== item.make) { try { await api.patch('/api/admin/tricycles/' + item.id, { make: event.target.value }); await loadAdminData(); } catch (error: any) { notify(error?.message || 'Vehicle make could not be updated'); } } }} /><input aria-label={'Model ' + item.id} defaultValue={item.model} onBlur={async event => { if (event.target.value.trim() && event.target.value.trim() !== item.model) { try { await api.patch('/api/admin/tricycles/' + item.id, { model: event.target.value }); await loadAdminData(); } catch (error: any) { notify(error?.message || 'Vehicle model could not be updated'); } } }} /><input aria-label={'Colour ' + item.id} defaultValue={item.color} onBlur={async event => { if (event.target.value.trim() && event.target.value.trim() !== item.color) { try { await api.patch('/api/admin/tricycles/' + item.id, { color: event.target.value }); await loadAdminData(); } catch (error: any) { notify(error?.message || 'Vehicle colour could not be updated'); } } }} /></div><textarea aria-label={'Registration details ' + item.id} defaultValue={item.registrationDetails || ''} placeholder="Registration details" onBlur={async event => { if (event.target.value !== (item.registrationDetails || '')) { try { await api.patch('/api/admin/tricycles/' + item.id, { registrationDetails: event.target.value }); await loadAdminData(); notify('Vehicle registration details updated; re-verification is required.'); } catch (error: any) { notify(error?.message || 'Vehicle registration details could not be updated'); } } }} /><select aria-label={'Assigned driver for ' + item.plateNumber} value={item.driver?.userId || ''} onChange={async event => { try { await api.patch('/api/admin/tricycles/' + item.id, { driverId: event.target.value }); await loadAdminData(); notify('Vehicle assignment updated. Driver verification has been reset for review.'); } catch (error: any) { notify(error?.message || 'Vehicle assignment could not be updated'); } }}>{drivers.map((driver: Driver) => <option key={driver.userId || driver.id} value={driver.userId || driver.id}>{driver.name} · {driver.phone || 'No phone'}</option>)}</select></div>
+                                    <span className={'ride-status ' + String(item.verificationStatus).toLowerCase()}>{item.verificationStatus}</span>
+                                    <select aria-label={'Vehicle status for ' + item.plateNumber} value={item.status} onChange={async event => {
+                                        try { await api.patch('/api/admin/tricycles/' + item.id, { status: event.target.value }); await loadAdminData(); notify('Vehicle status updated'); }
+                                        catch { notify('Vehicle status could not be updated'); }
+                                    }}><option value="active">Active</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select>
+                                    <select aria-label={'Verification for ' + item.plateNumber} value={item.verificationStatus} onChange={async event => {
+                                        try { await api.patch('/api/admin/tricycles/' + item.id, { verificationStatus: event.target.value }); await loadAdminData(); notify('Vehicle verification updated'); }
+                                        catch { notify('Vehicle verification could not be updated'); }
+                                    }}><option value="pending">Pending</option><option value="verified">Verified</option><option value="rejected">Rejected</option></select>
+                                </div>
+                            ))}
+                            {!tricycles.length && <AdminEmptyState title="No independent vehicle records yet" detail="Existing vehicle details remain on driver profiles. Register independent tricycle records as the vehicle register is populated." />}
+                        </Panel>
+                    </div>
+                )}
+
                 {section === 'rides' && (
                     <div className="admin-section-layout">
                         <div className="admin-section-summary-grid">
@@ -2642,8 +2803,15 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
                             </div>
                             {adminLoading ? <AdminEmptyState title="Loading incidents" detail="Retrieving the latest incident records." /> : filteredIncidents.length ? filteredIncidents.map((incident: any) => (
                                 <div className="ride-row admin-incident-row" key={incident.id}>
-                                    <div><strong>{incident.type || 'Incident'}</strong><span>{incident.message || 'No details supplied'} · {incident.createdAt ? new Date(incident.createdAt).toLocaleString() : 'Date unavailable'}</span></div>
-                                    <span className={'ride-status ' + String(incident.severity || incident.status || 'normal').toLowerCase()}>{incident.severity || incident.status || 'Open'}</span>
+                                    <div><strong>{incident.type || 'Incident'} · {incident.category || 'other'} · {incident.status || 'open'}</strong><span>Reported by {incident.user?.name || 'Unknown user'} ({incident.user?.role || 'user'}){incident.reportedUser ? ` · Reported account: ${incident.reportedUser.name} (${incident.reportedUser.role})` : ''} · {incident.createdAt ? new Date(incident.createdAt).toLocaleString() : 'Date unavailable'}</span>{incident.ride && <small>Trip: {incident.ride.pickup} → {incident.ride.destination} · {incident.ride.status}</small>}{incident.resolution && <small>Resolution: {incident.resolution}</small>}{incident.activities?.length > 0 && <div className="incident-activity-timeline">{incident.activities.slice(-4).map((activity: any) => <small key={activity.id}>{new Date(activity.createdAt).toLocaleString()} · {activity.actor?.name || 'System'} · {activity.action.replace(/_/g, ' ')}{activity.newStatus ? ` → ${activity.newStatus}` : ''}{activity.note ? ` · ${activity.note}` : ''}</small>)}</div>}</div>
+                                    <select aria-label={'Incident status ' + incident.id} value={incident.status || 'open'} onChange={async event => {
+                                        const nextStatus = event.target.value;
+                                        let resolution = incidentResolution[incident.id] || incident.resolution || '';
+                                        if (['resolved', 'closed'].includes(nextStatus) && resolution.trim().length < 5) { notify('Enter a resolution note before closing this incident'); return; }
+                                        try { await api.patch('/api/admin/incidents/' + incident.id, { status: nextStatus, resolution }); await loadAdminData(); notify('Incident status updated'); }
+                                        catch { notify('Incident could not be updated'); }
+                                    }}><option value="open">Open</option><option value="under_review">Under review</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
+                                    {!['resolved', 'closed'].includes(String(incident.status || 'open')) && <input aria-label={'Resolution note ' + incident.id} value={incidentResolution[incident.id] || ''} onChange={event => setIncidentResolution(current => ({ ...current, [incident.id]: event.target.value }))} placeholder="Resolution note" />}
                                 </div>
                             )) : <AdminEmptyState title="No matching incidents" detail="There are no incident records matching this search." />}
                         </Panel>
@@ -2676,11 +2844,28 @@ function AdminWorkspace({ drivers, rides, approveDriver, notify, updateUserRole,
 
                 {section === 'settings' && (
                     <div className="admin-section-layout">
-                        <Panel title="Platform configuration" eyebrow="SERVICE STATUS" className="admin-section-panel">
+                        <Panel title="Platform configuration" eyebrow="SERVICE SETTINGS" className="admin-section-panel">
                             <div className="admin-settings-list">
-                                <div className="settings-row"><Shield size={19} /><div><strong>Safety policy</strong><span>SOS events are stored against trip records.</span></div><CheckCircle2 size={18} /></div>
-                                <div className="settings-row"><CreditCard size={19} /><div><strong>Payments</strong><span>Passenger payments use Paystack checkout and server-side verification.</span></div><CheckCircle2 size={18} /></div>
-                                <div className="settings-row"><Bell size={19} /><div><strong>Notifications</strong><span>Ride and safety notification delivery is configured through the platform.</span></div><CheckCircle2 size={18} /></div>
+                                {[
+                                    { key: 'platform_name', label: 'Platform name', type: 'text', fallback: 'Tridash' },
+                                    { key: 'support_email', label: 'Support email', type: 'email', fallback: '' },
+                                    { key: 'support_phone', label: 'Support phone', type: 'tel', fallback: '' },
+                                    { key: 'platform_commission_percent', label: 'Platform commission (%)', type: 'number', fallback: 15 },
+                                    { key: 'base_fare_ngn', label: 'Base fare (₦)', type: 'number', fallback: 500 },
+                                    { key: 'fare_per_km_ngn', label: 'Fare per kilometre (₦)', type: 'number', fallback: 250 },
+                                    { key: 'minimum_fare_ngn', label: 'Minimum fare (₦)', type: 'number', fallback: 800 },
+                                    { key: 'service_area', label: 'Service area (display information)', type: 'text', fallback: 'Ebonyi State' },
+                                    { key: 'service_status', label: 'Ride service status', type: 'select', fallback: 'active' }
+                                ].map(setting => <form className="settings-row" key={setting.key} onSubmit={async event => {
+                                    event.preventDefault();
+                                    const input = platformSettings[setting.key] ?? setting.fallback;
+                                    const value = setting.type === 'number' ? Number(input) : input;
+                                    try { await api.put('/api/admin/settings/' + setting.key, { value }); setPlatformSettings(current => ({ ...current, [setting.key]: value })); notify(setting.label + ' saved'); }
+                                    catch (error: any) { notify(error?.message || setting.label + ' could not be saved'); }
+                                }}><div><strong>{setting.label}</strong>{setting.type === 'select' ? <select aria-label={setting.label} value={platformSettings[setting.key] ?? setting.fallback} onChange={event => setPlatformSettings(current => ({ ...current, [setting.key]: event.target.value }))}><option value="active">Active — accept ride requests</option><option value="paused">Paused — block new requests</option></select> : <input aria-label={setting.label} type={setting.type} min={setting.type === 'number' ? 0 : undefined} max={setting.key === 'platform_commission_percent' ? 50 : setting.type === 'number' ? 100000 : undefined} step={setting.type === 'number' ? 1 : undefined} value={platformSettings[setting.key] ?? setting.fallback} onChange={event => setPlatformSettings(current => ({ ...current, [setting.key]: event.target.value }))} />}</div><button className="secondary-button compact" type="submit">Save</button></form>)}
+                                <div className="settings-row"><Shield size={19} /><div><strong>Safety policy</strong><span>SOS events create incident records and administrator in-app alerts. Emergency services are not automatically contacted.</span></div><CheckCircle2 size={18} /></div>
+                                <div className="settings-row"><CreditCard size={19} /><div><strong>Payments</strong><span>Passengers can select cash or Paystack. Cash collection is confirmed by the assigned driver; Paystack transactions are verified server-side.</span></div><CheckCircle2 size={18} /></div>
+                                <div className="settings-row"><Bell size={19} /><div><strong>Notifications</strong><span>In-app alerts are supported. Browser push requires Firebase Web Push configuration; emergency SMS requires Twilio credentials.</span></div><CheckCircle2 size={18} /></div>
                             </div>
                         </Panel>
                         <Panel title="Account administration" eyebrow="PROTECTED ACTIONS" className="admin-section-panel">
@@ -2730,7 +2915,40 @@ function AdminEmptyState({ title, detail }: { title: string; detail: string }) {
 
 function Stat({ label, value, icon: Icon }: any) { return <div className="stat-card"><Icon size={19} /><span>{label}</span><strong>{value}</strong></div> }
 function Panel({ title, eyebrow, children, className = '' }: any) { return <section className={`admin-panel ${className}`}><div className="panel-head"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div></div>{children}</section> }
-function AdminUserRow({ user, updateUserRole, suspendUser, setUsers, askConfirm }: any) { const suspended = user.status === 'suspended'; const [saving, setSaving] = useState(false); const changeRole = async (nextRole: Role) => { if (nextRole === user.role) return; const confirmed = await askConfirm('Change account role?', 'Change ' + (user.name || user.email) + ' to ' + nextRole + '? This changes the workspace permissions available to the account.', 'Change role'); if (!confirmed) return; setSaving(true); if (await updateUserRole(user.id, nextRole)) setUsers((x: any[]) => x.map(item => item.id === user.id ? { ...item, role: nextRole } : item)); setSaving(false) }; const toggleStatus = async () => { const nextSuspended = !suspended; if (nextSuspended) { const confirmed = await askConfirm('Suspend account?', 'Suspend ' + (user.name || user.email) + '? They will be blocked from protected Tridash actions.', 'Suspend account'); if (!confirmed) return; } setSaving(true); if (await suspendUser(user.id, nextSuspended)) setUsers((x: any[]) => x.map(item => item.id === user.id ? { ...item, status: nextSuspended ? 'suspended' : 'active' } : item)); setSaving(false) }; return <div className="driver-row user-admin-row"><div className="avatar">{String(user.name || user.email).slice(0, 2).toUpperCase()}</div><div className="driver-info"><strong>{user.name || 'Unnamed user'}</strong><span>{user.email}</span><small className={'user-account-state ' + (suspended ? 'is-suspended' : '')}>{suspended ? 'Suspended account' : user.emailVerified ? 'Verified account' : 'Email not verified'}</small></div>{!user.isSuperAdmin && <div className="user-controls"><div className="user-control"><label>Role</label><select disabled={saving} value={user.role} onChange={e => changeRole(e.target.value as Role)}><option value="passenger">Passenger</option><option value="driver">Driver</option><option value="admin">Admin</option></select></div><div className="user-control"><label>Account</label><button className={'secondary-button compact user-status-button ' + (suspended ? 'reactivate' : 'suspend')} disabled={saving} onClick={toggleStatus}>{saving ? 'Saving…' : suspended ? 'Reactivate' : 'Suspend'}</button></div></div>}{user.isSuperAdmin && <span className="superadmin-badge">Superadmin protected</span>}</div> }
+function AdminUserRow({ user, updateUserRole, suspendUser, setUsers, askConfirm }: any) {
+    const [saving, setSaving] = useState(false);
+    const changeRole = async (nextRole: Role) => {
+        if (nextRole === user.role) return;
+        const confirmed = await askConfirm('Change account role?', 'Change ' + (user.name || user.email) + ' to ' + nextRole + '? This changes the workspace permissions available to the account.', 'Change role');
+        if (!confirmed) return;
+        setSaving(true);
+        if (await updateUserRole(user.id, nextRole)) setUsers((items: any[]) => items.map(item => item.id === user.id ? { ...item, role: nextRole } : item));
+        setSaving(false);
+    };
+    const changeStatus = async (status: 'active' | 'suspended' | 'inactive') => {
+        const labels = { active: 'Reactivate account?', suspended: 'Suspend account?', inactive: 'Deactivate account?' };
+        const descriptions = {
+            active: 'Restore access for ' + (user.name || user.email) + '.',
+            suspended: 'Temporarily block ' + (user.name || user.email) + ' from protected Tridash actions.',
+            inactive: 'Deactivate ' + (user.name || user.email) + '. They will be blocked from all authenticated application actions.'
+        };
+        const confirmed = await askConfirm(labels[status], descriptions[status], labels[status].replace('?', ''));
+        if (!confirmed) return;
+        setSaving(true);
+        if (await suspendUser(user.id, status === 'active' ? false : status)) setUsers((items: any[]) => items.map(item => item.id === user.id ? { ...item, status } : item));
+        setSaving(false);
+    };
+    const state = user.status || 'active';
+    return <div className="driver-row user-admin-row">
+        <div className="avatar">{String(user.name || user.email).slice(0, 2).toUpperCase()}</div>
+        <div className="driver-info"><strong>{user.name || 'Unnamed user'}</strong><span>{user.email}</span><small className={'user-account-state ' + (state !== 'active' ? 'is-suspended' : '')}>{state === 'active' ? (user.emailVerified ? 'Verified account' : 'Email not verified') : state === 'inactive' ? 'Deactivated account' : 'Suspended account'}</small></div>
+        {!user.isSuperAdmin && <div className="user-controls">
+            <div className="user-control"><label>Role</label><select disabled={saving} value={user.role} onChange={event => changeRole(event.target.value as Role)}><option value="passenger">Passenger</option><option value="driver">Driver</option><option value="admin">Admin</option></select></div>
+            <div className="user-control"><label>Account</label><select disabled={saving} value={state} onChange={event => changeStatus(event.target.value as 'active' | 'suspended' | 'inactive')}><option value="active">Active</option><option value="suspended">Suspended</option><option value="inactive">Deactivated</option></select></div>
+        </div>}
+        {user.isSuperAdmin && <span className="superadmin-badge">Superadmin protected</span>}
+    </div>;
+}
 function DriverVerificationApplication({ application, notify, onRefresh }: any) {
     const [notes, setNotes] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState<string | null>(null);

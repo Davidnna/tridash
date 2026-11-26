@@ -2,6 +2,9 @@ import { Router } from 'express';
 import prisma from '../utils/database';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
 import { notifySubscribers } from '../services/websocket';
+import { notifyUser, notifyUsers } from '../services/notifications';
+import { getServiceStatus } from '../utils/config';
+import { calculateFareFromDistance, getRouteDistanceMeters } from '../services/fare';
 
 const router = Router();
 
@@ -24,16 +27,27 @@ router.get('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
                 orderBy: { requestedAt: 'desc' },
             });
         } else if (user.role === 'driver') {
-            rides = await prisma.ride.findMany({
-                where: {
-                    OR: [
-                        { status: 'Requested' },
-                        { driverId: user.id },
-                    ],
-                },
-                take: 50,
-                orderBy: { requestedAt: 'desc' },
-            });
+            const [requestedRides, assignedRides] = await Promise.all([
+                prisma.ride.findMany({
+                    where: { status: 'Requested', driverId: null },
+                    take: 50,
+                    orderBy: { requestedAt: 'desc' },
+                }),
+                prisma.ride.findMany({
+                    where: { driverId: user.id },
+                    take: 50,
+                    orderBy: { requestedAt: 'desc' },
+                }),
+            ]);
+            const assignedIds = new Set(assignedRides.map(ride => ride.id));
+            rides = [
+                ...assignedRides,
+                ...requestedRides.filter(ride => !assignedIds.has(ride.id)).map(ride => ({
+                    ...ride,
+                    passengerPhone: null,
+                    riderPhone: null,
+                })),
+            ].sort((first, second) => second.requestedAt.getTime() - first.requestedAt.getTime()).slice(0, 100);
         } else {
             rides = await prisma.ride.findMany({
                 where: { passengerId: user.id },
@@ -58,7 +72,15 @@ router.post('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
             return res.status(403).json({ error: 'Only passenger or admin accounts can request rides' });
         }
 
-        const { pickup, destination, amount, riderPhone, passengerPhone, riderName, passenger, bookedForSelf, pickupCoords, destinationCoords } = req.body;
+        if (await getServiceStatus() === 'paused') {
+            return res.status(503).json({ error: 'Tridash ride requests are temporarily paused. Please try again later.' });
+        }
+
+        const { pickup, destination, amount: quotedAmount, riderPhone, passengerPhone, riderName, passenger, bookedForSelf, pickupCoords, destinationCoords } = req.body;
+        const paymentMethod = String(req.body?.paymentMethod || 'Cash');
+        if (!['Cash', 'Paystack'].includes(paymentMethod)) {
+            return res.status(400).json({ error: 'Choose a supported payment method: Cash or Paystack' });
+        }
 
         const profile = await prisma.profile.findUnique({
             where: { userId: req.user!.userId },
@@ -75,13 +97,26 @@ router.post('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
             return res.status(400).json({ error: 'Passenger name is required before booking' });
         }
 
-        if (!pickup || !destination || pickup.length < 2 || destination.length < 2) {
+        const pickupLocation = String(pickup || '').trim();
+        const destinationLocation = String(destination || '').trim();
+        if (pickupLocation.length < 2 || destinationLocation.length < 2) {
             return res.status(400).json({ error: 'Pickup and destination are required' });
         }
 
-        const fareAmount = Number(amount);
-        if (!Number.isInteger(fareAmount) || fareAmount < 800 || fareAmount > 100000) {
-            return res.status(400).json({ error: 'Ride fare is invalid' });
+        const normalizedPickupCoords = pickupCoords && typeof pickupCoords === 'object'
+            ? { lat: Number(pickupCoords.lat), lng: Number(pickupCoords.lng) }
+            : null;
+        const normalizedDestinationCoords = destinationCoords && typeof destinationCoords === 'object'
+            ? { lat: Number(destinationCoords.lat), lng: Number(destinationCoords.lng) }
+            : null;
+        if (!normalizedPickupCoords || !normalizedDestinationCoords) {
+            return res.status(400).json({ error: 'Select a valid pickup and destination from the map so Tridash can calculate the route fare.' });
+        }
+        const distanceMeters = await getRouteDistanceMeters(normalizedPickupCoords, normalizedDestinationCoords);
+        const fare = await calculateFareFromDistance(distanceMeters);
+        const fareAmount = fare.amount;
+        if (!Number.isInteger(Number(quotedAmount)) || Number(quotedAmount) !== fareAmount) {
+            return res.status(409).json({ error: 'The fare has changed. Find the route again to review the current fare before requesting your ride.' });
         }
 
         const ride = await prisma.ride.create({
@@ -92,24 +127,30 @@ router.post('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
                 riderName: finalRiderName.slice(0, 120),
                 riderPhone: finalRiderPhone.slice(0, 40),
                 bookedForSelf: bookedForSelf !== false,
-                pickup: pickup.slice(0, 300),
-                destination: destination.slice(0, 300),
-                pickupCoords: pickupCoords || null,
-                destinationCoords: destinationCoords || null,
+                pickup: pickupLocation.slice(0, 300),
+                destination: destinationLocation.slice(0, 300),
+                pickupCoords: normalizedPickupCoords,
+                destinationCoords: normalizedDestinationCoords,
                 amount: fareAmount,
                 status: 'Requested',
                 paymentStatus: 'Pending',
-                paymentMethod: 'Paystack',
+                paymentMethod,
             },
         });
 
-        // Notify subscribers
+        // Notify currently available drivers. Detailed matching can be layered on later.
         await notifySubscribers('rides', ride.id, ride);
+        const availableDrivers = await prisma.driver.findMany({
+            where: { verified: true, online: true, status: 'active', user: { is: { status: 'active' } }, tricycles: { some: { status: 'active', verificationStatus: 'verified' } } },
+            select: { userId: true },
+        });
+        await notifyUsers(availableDrivers.map(driver => driver.userId), 'New ride request', `${ride.pickup} to ${ride.destination} · ₦${ride.amount.toLocaleString()}`, '/driver/requests');
 
         res.status(201).json({ ride });
-    } catch (error) {
-        console.error('Create ride error:', error);
-        res.status(500).json({ error: 'Failed to create ride' });
+    } catch (error: any) {
+        const status = Number(error?.statusCode) || 500;
+        if (status === 500) console.error('Create ride error:', error);
+        res.status(status).json({ error: error?.message || 'Failed to create ride' });
     }
 });
 
@@ -123,6 +164,9 @@ router.post('/:id/accept', requireAuth(), async (req: AuthenticatedRequest, res)
         if (!user || user.role !== 'driver') {
             return res.status(403).json({ error: 'Driver access required' });
         }
+        if (await getServiceStatus() === 'paused') {
+            return res.status(503).json({ error: 'Tridash has temporarily paused new ride assignments.' });
+        }
 
         const driver = await prisma.driver.findUnique({
             where: { userId: user.id },
@@ -132,20 +176,19 @@ router.post('/:id/accept', requireAuth(), async (req: AuthenticatedRequest, res)
             return res.status(404).json({ error: 'Driver profile not found' });
         }
 
-        if (!driver.verified || driver.status === 'suspended' || !driver.online) {
+        if (!driver.verified || driver.status !== 'active' || !driver.online) {
             return res.status(403).json({ error: 'You must be a verified online driver to accept rides' });
+        }
+        const activeVehicle = await prisma.tricycle.findFirst({
+            where: { driverId: driver.userId, status: 'active', verificationStatus: 'verified' },
+            select: { id: true },
+        });
+        if (!activeVehicle) {
+            return res.status(403).json({ error: 'An active, verified tricycle is required before accepting rides.' });
         }
 
         if (!driver.phone || driver.phone.trim().length < 7) {
             return res.status(400).json({ error: 'Add your phone number to your driver profile before accepting rides' });
-        }
-
-        // Drivers must have a payout account and Paystack subaccount so fares can
-        // be split to their bank before they can accept rides.
-        if (!driver.payoutSubaccountCode || !driver.payoutAccountNumber || !driver.payoutBankCode) {
-            return res.status(403).json({
-                error: 'Add your payout bank account in your driver profile before accepting rides, so your earnings can be paid to you',
-            });
         }
 
         const ride = await prisma.ride.findUnique({
@@ -160,6 +203,10 @@ router.post('/:id/accept', requireAuth(), async (req: AuthenticatedRequest, res)
                         ? 'Ride has already been accepted by another driver'
                         : 'Ride is no longer available',
             });
+        }
+
+        if (ride.paymentMethod !== 'Cash' && (!driver.payoutSubaccountCode || !driver.payoutAccountNumber || !driver.payoutBankCode)) {
+            return res.status(403).json({ error: 'This passenger selected online payment. Add and verify a payout account before accepting this ride, or ask the passenger to request a cash ride.' });
         }
 
         const passengerProfile = await prisma.profile.findUnique({
@@ -209,6 +256,7 @@ router.post('/:id/accept', requireAuth(), async (req: AuthenticatedRequest, res)
 
         // Notify subscribers only after the atomic claim succeeds.
         await notifySubscribers('rides', updatedRide.id, updatedRide);
+        await notifyUser(updatedRide.passengerId, 'Driver assigned', `${updatedRide.driver || 'A verified driver'} accepted your ride request.`, `/trips/${updatedRide.id}`);
 
         res.json({ ride: updatedRide });
     } catch (error) {
@@ -318,6 +366,8 @@ router.put('/:id', requireAuth(), async (req: AuthenticatedRequest, res) => {
             },
             data: {
                 status: requestedStatus,
+                ...(requestedStatus === 'In Progress' ? { startedAt: new Date() } : {}),
+                ...(requestedStatus === 'Completed' ? { completedAt: new Date() } : {}),
                 ...(requestedStatus === 'Cancelled' ? { cancelledAt: new Date() } : {}),
             },
         });
@@ -334,13 +384,71 @@ router.put('/:id', requireAuth(), async (req: AuthenticatedRequest, res) => {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
-        // Notify subscribers only after a successful state transition.
+        // Notify subscribers and the passenger only after a successful state transition.
         await notifySubscribers('rides', updatedRide.id, updatedRide);
+        const statusMessage = requestedStatus === 'In Progress'
+            ? 'Your driver has started the trip.'
+            : 'Your trip has been completed.';
+        await notifyUser(updatedRide.passengerId, requestedStatus === 'In Progress' ? 'Trip started' : 'Trip completed', statusMessage, `/trips/${updatedRide.id}`);
 
         res.json({ ride: updatedRide });
     } catch (error) {
         console.error('Update ride error:', error);
         res.status(500).json({ error: 'Failed to update ride' });
+    }
+});
+
+
+// Driver confirms receipt of a cash fare after a completed trip.
+router.post('/:id/cash-payment/confirm', requireAuth(), async (req: AuthenticatedRequest, res) => {
+    try {
+        if (req.user!.role !== 'driver') {
+            return res.status(403).json({ error: 'Only the assigned driver can confirm cash collection' });
+        }
+        const rideId = String(req.params.id);
+        const result = await prisma.$transaction(async tx => {
+            const ride = await tx.ride.findUnique({ where: { id: rideId } });
+            if (!ride || ride.driverId !== req.user!.userId) {
+                throw Object.assign(new Error('Ride not found or not assigned to this driver'), { statusCode: 404 });
+            }
+            if (ride.status !== 'Completed' || ride.paymentMethod !== 'Cash') {
+                throw Object.assign(new Error('Only completed cash rides can be confirmed'), { statusCode: 409 });
+            }
+            if (ride.paymentStatus === 'Paid') {
+                throw Object.assign(new Error('Cash payment has already been confirmed'), { statusCode: 409 });
+            }
+            const cashUpdate = await tx.ride.updateMany({
+                where: { id: rideId, driverId: req.user!.userId, status: 'Completed', paymentMethod: 'Cash', paymentStatus: { not: 'Paid' } },
+                data: { paymentStatus: 'Paid', paymentReference: `CASH-${rideId}` },
+            });
+            if (cashUpdate.count !== 1) {
+                throw Object.assign(new Error('Cash payment has already been confirmed or the ride changed'), { statusCode: 409 });
+            }
+            const payment = await tx.payment.upsert({
+                where: { reference: `CASH-${rideId}` },
+                create: {
+                    rideId,
+                    userId: ride.passengerId,
+                    amount: ride.amount,
+                    method: 'Cash',
+                    status: 'Paid',
+                    reference: `CASH-${rideId}`,
+                    paidAt: new Date(),
+                },
+                update: { status: 'Paid', paidAt: new Date() },
+            });
+            const updatedRide = await tx.ride.findUnique({ where: { id: rideId } });
+            return { ride: updatedRide, payment };
+        });
+        if (result.ride) {
+            await notifyUser(result.ride.passengerId, 'Cash fare confirmed', 'Your driver confirmed receiving the cash fare for this trip.', `/trips/${result.ride.id}`);
+            await notifySubscribers('rides', result.ride.id, result.ride);
+        }
+        res.json(result);
+    } catch (error: any) {
+        const status = Number(error?.statusCode) || 500;
+        if (status === 500) console.error('Cash payment confirmation error:', error);
+        res.status(status).json({ error: error?.message || 'Could not confirm cash payment' });
     }
 });
 
@@ -384,8 +492,11 @@ router.post('/:id/cancel', requireAuth(), async (req: AuthenticatedRequest, res)
         const updatedRide = await prisma.ride.findUnique({ where: { id: String(req.params.id) } });
         if (!updatedRide) return res.status(404).json({ error: 'Ride not found' });
 
-        // Notify subscribers only after the conditional state transition succeeds.
+        // Notify subscribers and the assigned driver only after the cancellation succeeds.
         await notifySubscribers('rides', updatedRide.id, updatedRide);
+        if (updatedRide.driverId) {
+            await notifyUser(updatedRide.driverId, 'Ride cancelled', 'The passenger cancelled this ride.', '/driver');
+        }
 
         res.json({ ride: updatedRide });
     } catch (error) {

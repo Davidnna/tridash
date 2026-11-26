@@ -1,53 +1,52 @@
-// Notifications API - Replaces @appdeploy/client notifications
-// Note: This is a simple stub. For full push notifications, you'll need to:
-// 1. Set up Firebase Cloud Messaging in your Firebase project
-// 2. Request notification permissions from the user
-// 3. Get FCM token and send to backend
-// 4. Backend sends push notifications via Firebase Admin SDK
+import { getMessaging, getToken, isSupported, onMessage, type MessagePayload } from 'firebase/messaging';
+import { firebaseApp } from '../firebase';
+import { api } from './client';
 
 class NotificationsClient {
+    private messagingPromise: Promise<ReturnType<typeof getMessaging> | null> | null = null;
+
+    private async messaging() {
+        if (!this.messagingPromise) {
+            this.messagingPromise = isSupported().then(supported => supported ? getMessaging(firebaseApp) : null);
+        }
+        return this.messagingPromise;
+    }
+
     async requestPermission(): Promise<boolean> {
-        if (!('Notification' in window)) {
-            console.warn('This browser does not support notifications');
-            return false;
-        }
-
-        if (Notification.permission === 'granted') {
-            return true;
-        }
-
-        if (Notification.permission !== 'denied') {
-            const permission = await Notification.requestPermission();
-            return permission === 'granted';
-        }
-
-        return false;
+        if (!('Notification' in window)) return false;
+        if (Notification.permission === 'granted') return true;
+        if (Notification.permission === 'denied') return false;
+        return (await Notification.requestPermission()) === 'granted';
     }
 
-    async showNotification(title: string, options?: NotificationOptions) {
-        const hasPermission = await this.requestPermission();
-
-        if (hasPermission) {
-            new Notification(title, options);
-        } else {
-            console.warn('Notification permission not granted');
-        }
+    async subscribe(): Promise<string> {
+        const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+        if (!vapidKey) throw new Error('Push notifications are not configured for this deployment.');
+        if (!(await this.requestPermission())) throw new Error('Notification permission was not granted.');
+        const messaging = await this.messaging();
+        if (!messaging) throw new Error('This browser does not support Firebase push notifications.');
+        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
+        if (!token) throw new Error('The browser did not issue a push notification token.');
+        await api.post('/api/notifications/device-token', { token, platform: 'web' });
+        return token;
     }
 
-    // Placeholder for future FCM integration
-    async getToken(): Promise<string | null> {
-        console.warn('FCM token generation not implemented yet');
-        return null;
+    async unsubscribe(): Promise<void> {
+        const messaging = await this.messaging();
+        if (!messaging) return;
+        const token = await getToken(messaging, { vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY });
+        if (token) await api.delete('/api/notifications/device-token', { token });
     }
 
-    // Placeholder for subscribing to topics
-    async subscribe(_topic?: string): Promise<void> {
-        console.warn('Topic subscription not implemented yet');
+    onForegroundMessage(callback: (payload: MessagePayload) => void) {
+        let unsubscribe: (() => void) | null = null;
+        void this.messaging().then(messaging => {
+            if (messaging) unsubscribe = onMessage(messaging, callback);
+        });
+        return () => unsubscribe?.();
     }
 }
 
-// Export singleton instance
 export const notifications = new NotificationsClient();
-
-// Export class
 export default NotificationsClient;

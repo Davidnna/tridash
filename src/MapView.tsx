@@ -4,7 +4,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 export type GeoPoint = { lat: number; lng: number };
-export type RouteData = { distanceMeters: number; durationSeconds: number; geometry: any };
+export type RouteData = { distanceMeters: number; durationSeconds: number; geometry: any; estimatedFare?: number };
 
 type Props = {
     pickup?: GeoPoint | null;

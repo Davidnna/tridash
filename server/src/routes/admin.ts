@@ -4,10 +4,32 @@ import { requireAuth, requireAdmin, AuthenticatedRequest } from '../middleware/a
 import { getFirebaseAuth } from '../utils/firebase';
 import { readPrivateDocument } from '../services/privateDocumentStorage';
 import { requiredDocumentTypes } from '../services/driverVerification';
+import { notifyUser } from '../services/notifications';
 
 const router = Router();
 
-const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'davedozie1@gmail.com';
+const SUPER_ADMIN_EMAIL = String(process.env.SUPER_ADMIN_EMAIL || '').trim().toLowerCase();
+
+// Aggregate dashboard metrics from the database so totals are not limited by list-page caps.
+router.get('/overview', requireAuth(), requireAdmin(), async (_req: AuthenticatedRequest, res) => {
+    try {
+        const [passengers, drivers, verifiedDrivers, pendingDrivers, tricycles, activeRides, completedRides, openIncidents, payments] = await Promise.all([
+            prisma.user.count({ where: { role: 'passenger' } }),
+            prisma.driver.count(),
+            prisma.driver.count({ where: { verified: true, status: 'active' } }),
+            prisma.driver.count({ where: { verified: false, verificationStatus: { notIn: ['verified', 'rejected'] } } }),
+            prisma.tricycle.count(),
+            prisma.ride.count({ where: { status: { in: ['Requested', 'Accepted', 'In Progress'] } } }),
+            prisma.ride.count({ where: { status: 'Completed' } }),
+            prisma.incident.count({ where: { status: { notIn: ['resolved', 'closed'] } } }),
+            prisma.payment.aggregate({ where: { status: { in: ['Paid', 'Success', 'Successful'] } }, _sum: { amount: true }, _count: true }),
+        ]);
+        res.json({ overview: { passengers, drivers, verifiedDrivers, pendingDrivers, tricycles, activeRides, completedRides, openIncidents, paidPayments: payments._count, paidPaymentValue: payments._sum.amount || 0 } });
+    } catch (error) {
+        console.error('Admin overview error:', error);
+        res.status(500).json({ error: 'Could not load aggregate dashboard metrics' });
+    }
+});
 
 // Get all users (admin only)
 router.get('/users', requireAuth(), requireAdmin(), async (req: AuthenticatedRequest, res) => {
@@ -75,13 +97,32 @@ router.put('/users/:id', requireAuth(), requireAdmin(), async (req: Authenticate
             return res.status(403).json({ error: 'Only the superadmin can grant administrator access' });
         }
 
-        const updatedUser = await prisma.user.update({
-            where: { id: String(req.params.id) },
-            data: {
-                role: requestedRole,
-                status: status === 'suspended' ? 'suspended' : status === 'active' ? 'active' : targetUser.status || 'active',
-            },
+        const nextStatus = status === 'suspended' ? 'suspended' : status === 'inactive' ? 'inactive' : status === 'active' ? 'active' : targetUser.status || 'active';
+        if (targetUser.id === currentUser.id && nextStatus !== 'active') {
+            return res.status(409).json({ error: 'You cannot suspend or deactivate your own administrator session' });
+        }
+        const updatedUser = await prisma.$transaction(async tx => {
+            const updated = await tx.user.update({
+                where: { id: String(req.params.id) },
+                data: { role: requestedRole, status: nextStatus },
+            });
+            if (['inactive', 'suspended'].includes(nextStatus)) {
+                await tx.session.deleteMany({ where: { userId: targetUser.id } });
+                await tx.pushToken.deleteMany({ where: { userId: targetUser.id } });
+            }
+            return updated;
         });
+
+        if (['inactive', 'suspended'].includes(updatedUser.status) && targetUser.role === 'driver') {
+            await prisma.driver.updateMany({ where: { userId: targetUser.id }, data: { online: false, status: updatedUser.status } });
+        }
+        if (targetUser.role === 'driver' && requestedRole !== 'driver') {
+            await prisma.driver.updateMany({ where: { userId: targetUser.id }, data: { online: false } });
+        }
+        if (updatedUser.status === 'active' && targetUser.role === 'driver') {
+            await prisma.driver.updateMany({ where: { userId: targetUser.id, verified: true }, data: { status: 'active' } });
+            await prisma.driver.updateMany({ where: { userId: targetUser.id, verified: false }, data: { status: 'pending' } });
+        }
 
         // If changing to driver, create driver profile
         if (requestedRole === 'driver') {
@@ -203,9 +244,23 @@ router.post('/driver-verifications/:driverId/approve', requireAuth(), requireAdm
         const missing = requiredDocumentTypes(driver.operatingState).filter(type => !verifiedTypes.has(type));
         if (missing.length) return res.status(409).json({ error: 'These required checks are not verified yet: ' + missing.join(', ') });
         if (process.env.FACE_VERIFICATION_API_URL && driver.faceStatus !== 'verified') return res.status(409).json({ error: 'Facial verification is enabled but has not passed yet.' });
-        const updated = await prisma.driver.update({ where: { id: driver.id }, data: { verified: true, online: false, status: 'active', verificationStatus: 'verified' } });
+        const plateNumber = driver.tricycle.toUpperCase();
+        const plateOwner = await prisma.tricycle.findUnique({ where: { plateNumber } });
+        if (plateOwner && plateOwner.driverId !== driver.userId) {
+            return res.status(409).json({ error: 'This tricycle registration number is already assigned to another driver.' });
+        }
+        const updated = await prisma.$transaction(async tx => {
+            const approvedDriver = await tx.driver.update({ where: { id: driver.id }, data: { verified: true, online: false, status: 'active', verificationStatus: 'verified', vehicleStatus: 'verified' } });
+            await tx.tricycle.upsert({
+                where: { plateNumber },
+                create: { driverId: driver.userId, plateNumber, make: driver.vehicleMake, model: driver.vehicleModel, color: driver.vehicleColor, verificationStatus: 'verified', status: 'active' },
+                update: { driverId: driver.userId, make: driver.vehicleMake, model: driver.vehicleModel, color: driver.vehicleColor, verificationStatus: 'verified', status: 'active' },
+            });
+            return approvedDriver;
+        });
         res.json({ driver: updated, message: 'Driver approved after all required document checks passed.' });
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.code === 'P2002') return res.status(409).json({ error: 'This tricycle registration number is already assigned to another driver.' });
         console.error('Admin driver approval error:', error);
         res.status(500).json({ error: 'Could not approve driver' });
     }
@@ -218,7 +273,7 @@ router.post('/reset-users', requireAuth(), requireAdmin(), async (req: Authentic
             where: { id: req.user!.userId },
         });
 
-        if (!currentUser?.isSuperAdmin || currentUser.email.toLowerCase() !== SUPER_ADMIN_EMAIL) {
+        if (!SUPER_ADMIN_EMAIL || !currentUser?.isSuperAdmin || currentUser.email.toLowerCase() !== SUPER_ADMIN_EMAIL) {
             return res.status(403).json({ error: 'Superadmin access required' });
         }
 
@@ -281,12 +336,247 @@ router.get('/incidents', requireAuth(), requireAdmin(), async (req: Authenticate
         const incidents = await prisma.incident.findMany({
             take: 200,
             orderBy: { createdAt: 'desc' },
+            include: {
+                user: { select: { id: true, name: true, role: true, phone: true } },
+                reportedUser: { select: { id: true, name: true, role: true, phone: true } },
+                assignedTo: { select: { id: true, name: true } },
+                ride: { select: { id: true, pickup: true, destination: true, status: true, requestedAt: true } },
+                activities: { orderBy: { createdAt: 'asc' }, include: { actor: { select: { id: true, name: true, role: true } } } },
+            },
         });
 
         res.json({ incidents });
     } catch (error) {
         console.error('Get incidents error:', error);
         res.status(500).json({ error: 'Failed to get incidents' });
+    }
+});
+
+
+
+// Review and resolve an incident with an auditable status and resolution record.
+router.patch('/incidents/:id', requireAuth(), requireAdmin(), async (req: AuthenticatedRequest, res) => {
+    try {
+        const status = String(req.body.status || '');
+        const resolution = String(req.body.resolution || '').trim();
+        if (!['open', 'under_review', 'resolved', 'closed'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid incident status' });
+        }
+        if (['resolved', 'closed'].includes(status) && resolution.length < 5) {
+            return res.status(400).json({ error: 'A resolution note of at least five characters is required' });
+        }
+        const incident = await prisma.$transaction(async tx => {
+            const existing = await tx.incident.findUnique({ where: { id: String(req.params.id) } });
+            if (!existing) throw Object.assign(new Error('Incident not found'), { statusCode: 404 });
+            const updated = await tx.incident.update({
+                where: { id: existing.id },
+                data: {
+                    status,
+                    assignedToId: req.user!.userId,
+                    ...(resolution ? { resolution: resolution.slice(0, 3000) } : {}),
+                    resolvedAt: ['resolved', 'closed'].includes(status) ? new Date() : null,
+                },
+            });
+            await tx.incidentActivity.create({
+                data: {
+                    incidentId: existing.id,
+                    actorId: req.user!.userId,
+                    action: 'status_updated',
+                    previousStatus: existing.status,
+                    newStatus: status,
+                    note: resolution || null,
+                },
+            });
+            return updated;
+        });
+        const reporterRoute = incident.userId ? await prisma.user.findUnique({ where: { id: incident.userId }, select: { role: true } }) : null;
+        if (incident.userId) {
+            const destination = reporterRoute?.role === 'driver' ? '/driver' : '/safety';
+            await notifyUser(incident.userId, 'Your safety report was updated', `The report status is now ${incident.status.replace(/_/g, ' ')}.`, destination);
+        }
+        res.json({ incident });
+    } catch (error: any) {
+        const status = Number(error?.statusCode) || 500;
+        if (status === 500) console.error('Update incident error:', error);
+        res.status(status).json({ error: error?.message || 'Failed to update incident' });
+    }
+});
+
+// Independent tricycle register and lifecycle management.
+router.get('/tricycles', requireAuth(), requireAdmin(), async (_req: AuthenticatedRequest, res) => {
+    try {
+        const tricycles = await prisma.tricycle.findMany({
+            include: { driver: { select: { id: true, userId: true, name: true, phone: true, verified: true, status: true } } },
+            orderBy: { createdAt: 'desc' },
+        });
+        res.json({ tricycles });
+    } catch (error) {
+        console.error('Get tricycles error:', error);
+        res.status(500).json({ error: 'Failed to load tricycles' });
+    }
+});
+
+router.post('/tricycles', requireAuth(), requireAdmin(), async (req: AuthenticatedRequest, res) => {
+    try {
+        const { driverId, plateNumber, make, model, color, registrationDetails } = req.body;
+        const plate = String(plateNumber || '').trim().toUpperCase();
+        if (!driverId || plate.length < 3 || !String(make || '').trim() || !String(model || '').trim() || !String(color || '').trim()) {
+            return res.status(400).json({ error: 'Driver, plate number, make, model and colour are required' });
+        }
+        const driver = await prisma.driver.findUnique({ where: { userId: String(driverId) } });
+        if (!driver) return res.status(404).json({ error: 'Driver profile not found' });
+        const activeVehicle = await prisma.tricycle.findFirst({ where: { driverId: driver.userId, status: 'active' } });
+        if (activeVehicle) return res.status(409).json({ error: 'This driver already has an active registered tricycle. Deactivate the existing vehicle before registering another.' });
+        const tricycle = await prisma.$transaction(async tx => {
+            const created = await tx.tricycle.create({
+                data: {
+                    driverId: driver.userId,
+                    plateNumber: plate,
+                    make: String(make).trim().slice(0, 80),
+                    model: String(model).trim().slice(0, 80),
+                    color: String(color).trim().slice(0, 40),
+                    registrationDetails: String(registrationDetails || '').trim().slice(0, 2000),
+                },
+            });
+            await tx.driver.update({
+                where: { id: driver.id },
+                data: {
+                    tricycle: plate,
+                    vehicleMake: created.make,
+                    vehicleModel: created.model,
+                    vehicleColor: created.color,
+                    vehicleStatus: 'pending',
+                    verificationStatus: 'pending_review',
+                    verified: false,
+                    online: false,
+                    status: 'pending',
+                },
+            });
+            await tx.driverVerificationDocument.updateMany({
+                where: { driverId: driver.id, documentType: 'vehicle_registration' },
+                data: { status: 'needs_review', verifiedAt: null, reviewedAt: null, reviewedById: null, reviewReason: 'Vehicle record changed; recheck the registration document against the new vehicle details.' },
+            });
+            return created;
+        });
+        res.status(201).json({ tricycle });
+    } catch (error: any) {
+        if (error?.code === 'P2002') return res.status(409).json({ error: 'That plate number is already registered' });
+        console.error('Create tricycle error:', error);
+        res.status(500).json({ error: 'Failed to register tricycle' });
+    }
+});
+
+router.patch('/tricycles/:id', requireAuth(), requireAdmin(), async (req: AuthenticatedRequest, res) => {
+    try {
+        const existing = await prisma.tricycle.findUnique({ where: { id: String(req.params.id) } });
+        if (!existing) return res.status(404).json({ error: 'Tricycle not found' });
+        const allowedStatuses = ['active', 'suspended', 'inactive'];
+        const allowedVerification = ['pending', 'verified', 'rejected'];
+        const data: Record<string, any> = {};
+        if (req.body.status !== undefined) {
+            if (!allowedStatuses.includes(String(req.body.status))) return res.status(400).json({ error: 'Invalid vehicle status' });
+            data.status = String(req.body.status);
+        }
+        if (req.body.verificationStatus !== undefined) {
+            if (!allowedVerification.includes(String(req.body.verificationStatus))) return res.status(400).json({ error: 'Invalid vehicle verification status' });
+            data.verificationStatus = String(req.body.verificationStatus);
+        }
+        for (const [field, maxLength] of [['plateNumber', 40], ['make', 80], ['model', 80], ['color', 40], ['registrationDetails', 2000]] as const) {
+            if (req.body[field] !== undefined) {
+                const value = String(req.body[field]).trim();
+                if (!value && field !== 'registrationDetails') return res.status(400).json({ error: `${field} cannot be empty` });
+                data[field] = value.slice(0, maxLength);
+            }
+        }
+        if (data.plateNumber) data.plateNumber = data.plateNumber.toUpperCase();
+        if (req.body.driverId !== undefined) {
+            const driverId = String(req.body.driverId).trim();
+            const driver = await prisma.driver.findUnique({ where: { userId: driverId } });
+            if (!driver) return res.status(404).json({ error: 'Assigned driver profile not found' });
+            const otherActiveVehicle = await prisma.tricycle.findFirst({ where: { driverId: driver.userId, status: 'active', id: { not: existing.id } } });
+            if (driver.userId !== existing.driverId && otherActiveVehicle) return res.status(409).json({ error: 'This driver already has another active registered tricycle.' });
+            data.driverId = driver.userId;
+        }
+        if (!Object.keys(data).length) return res.status(400).json({ error: 'No valid tricycle fields supplied' });
+        const tricycle = await prisma.$transaction(async tx => {
+            const updated = await tx.tricycle.update({ where: { id: existing.id }, data });
+            const vehicleIdentityChanged = Boolean(data.plateNumber || data.make || data.model || data.color || data.registrationDetails || (data.driverId && data.driverId !== existing.driverId));
+            if (data.driverId && data.driverId !== existing.driverId) {
+                await tx.driver.updateMany({
+                    where: { userId: existing.driverId },
+                    data: { online: false, verified: false, status: 'pending', verificationStatus: 'pending_review', vehicleStatus: 'pending', tricycle: '', vehicleMake: '', vehicleModel: '', vehicleColor: '' },
+                });
+                await tx.driverVerificationDocument.updateMany({
+                    where: { driver: { is: { userId: existing.driverId } }, documentType: 'vehicle_registration' },
+                    data: { status: 'needs_review', verifiedAt: null, reviewedAt: null, reviewedById: null, reviewReason: "The assigned vehicle changed; review the driver's current vehicle documents." },
+                });
+            }
+            await tx.driver.updateMany({
+                where: { userId: updated.driverId },
+                data: {
+                    ...(vehicleIdentityChanged ? { tricycle: updated.plateNumber, vehicleMake: updated.make, vehicleModel: updated.model, vehicleColor: updated.color, verified: false, online: false, status: 'pending', verificationStatus: 'pending_review', vehicleStatus: 'pending' } : {}),
+                    ...(data.verificationStatus && !vehicleIdentityChanged ? { vehicleStatus: data.verificationStatus, ...(data.verificationStatus !== 'verified' ? { verified: false, online: false, status: 'pending', verificationStatus: 'pending_review' } : {}) } : {}),
+                    ...(data.status && data.status !== 'active' ? { online: false } : {}),
+                },
+            });
+            if (vehicleIdentityChanged) {
+                await tx.driverVerificationDocument.updateMany({
+                    where: { driver: { is: { userId: updated.driverId } }, documentType: 'vehicle_registration' },
+                    data: { status: 'needs_review', verifiedAt: null, reviewedAt: null, reviewedById: null, reviewReason: 'Vehicle details changed; recheck the registration document.' },
+                });
+            }
+            return updated;
+        });
+        res.json({ tricycle });
+    } catch (error: any) {
+        if (error?.code === 'P2002') return res.status(409).json({ error: 'That plate number is already registered' });
+        console.error('Update tricycle error:', error);
+        res.status(500).json({ error: 'Failed to update tricycle' });
+    }
+});
+
+// Platform settings are persisted as JSON values; only an administrator can change them.
+router.get('/settings', requireAuth(), requireAdmin(), async (_req: AuthenticatedRequest, res) => {
+    try {
+        const settings = await prisma.platformSetting.findMany({ orderBy: { key: 'asc' } });
+        res.json({ settings });
+    } catch (error) {
+        console.error('Get settings error:', error);
+        res.status(500).json({ error: 'Failed to load platform settings' });
+    }
+});
+
+router.put('/settings/:key', requireAuth(), requireAdmin(), async (req: AuthenticatedRequest, res) => {
+    try {
+        const key = String(req.params.key).trim();
+        const allowed = ['platform_name', 'support_email', 'support_phone', 'platform_commission_percent', 'service_status', 'service_area', 'base_fare_ngn', 'fare_per_km_ngn', 'minimum_fare_ngn'];
+        if (!allowed.includes(key)) return res.status(400).json({ error: 'This setting cannot be changed through the administrator console' });
+        const value = req.body.value;
+        if (value === undefined || value === null) return res.status(400).json({ error: 'A setting value is required' });
+        if (key === 'service_status' && !['active', 'paused'].includes(String(value))) {
+            return res.status(400).json({ error: 'Service status must be active or paused' });
+        }
+        if (key === 'support_email' && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value))) {
+            return res.status(400).json({ error: 'Enter a valid support email address' });
+        }
+        if (key === 'platform_commission_percent' && (typeof value !== 'number' || value < 0 || value > 50)) {
+            return res.status(400).json({ error: 'Commission must be between 0 and 50 percent' });
+        }
+        if (['base_fare_ngn', 'fare_per_km_ngn', 'minimum_fare_ngn'].includes(key) && (!Number.isInteger(value) || value < 0 || value > 100000)) {
+            return res.status(400).json({ error: 'Fare settings must be whole naira amounts between 0 and 100,000' });
+        }
+        const setting = await prisma.platformSetting.upsert({
+            where: { key },
+            create: { key, value, updatedBy: req.user!.userId },
+            update: { value, updatedBy: req.user!.userId },
+        });
+        if (key === 'service_status' && value === 'paused') {
+            await prisma.driver.updateMany({ where: { online: true }, data: { online: false, lastLocation: null } });
+        }
+        res.json({ setting });
+    } catch (error) {
+        console.error('Update setting error:', error);
+        res.status(500).json({ error: 'Failed to update platform setting' });
     }
 });
 

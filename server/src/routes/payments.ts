@@ -227,6 +227,10 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
             return res.status(403).json({ error: 'Payment is not authorized for this ride' });
         }
 
+        if (ride.paymentMethod !== 'Paystack') {
+            return res.status(409).json({ error: 'This ride was booked for cash payment and cannot be paid through Paystack' });
+        }
+
         if (ride.status !== 'Completed') {
             return res.status(409).json({ error: 'Online payment is available after the trip is completed' });
         }
@@ -328,7 +332,7 @@ router.post('/paystack/initialize', requireAuth(), async (req: AuthenticatedRequ
         };
 
         if (driver?.payoutSubaccountCode) {
-            const commissionPercent = getCommissionPercent();
+            const commissionPercent = await getCommissionPercent();
             splitBody.split = {
                 type: 'percentage',
                 bearer_type: 'all',

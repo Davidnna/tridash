@@ -2,33 +2,38 @@ import { Router } from 'express';
 import prisma from '../utils/database';
 import { requireAuth, requireDriver, AuthenticatedRequest } from '../middleware/auth';
 import { notifySubscribers } from '../services/websocket';
-import { getCommissionPercent } from '../utils/config';
+import { getCommissionPercent, getServiceStatus } from '../utils/config';
 import { randomUUID } from 'crypto';
 import { writePrivateDocument, readPrivateDocument, deletePrivateDocument } from '../services/privateDocumentStorage';
 import { compareDocumentFields, extractDocumentFields, verifyAgainstOfficialProvider, verifyFaceWithProvider, requiredDocumentTypes, getVerificationConfig, VerificationDocumentType } from '../services/driverVerification';
 
 const router = Router();
 
-// Get all drivers (public). Payout/bank details are excluded so account
-// numbers are only ever visible to the driver themselves.
-router.get('/', requireAuth(), async (req, res) => {
+// Return a limited authenticated driver directory. Personal phone numbers are
+// visible only to administrators and assigned-trip participants.
+router.get('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
     try {
         const drivers = await prisma.driver.findMany({
+            where: req.user?.role === 'admin' ? undefined : {
+                user: { is: { status: 'active' } },
+                tricycles: { some: { status: 'active', verificationStatus: 'verified' } },
+            },
             take: 100,
             orderBy: { createdAt: 'desc' },
             select: {
                 id: true,
                 userId: true,
                 name: true,
-                phone: true,
+                phone: req.user?.role === 'admin',
                 tricycle: true,
+                vehicleMake: true,
+                vehicleModel: true,
+                vehicleColor: true,
                 rating: true,
                 ratingCount: true,
                 verified: true,
                 online: true,
                 status: true,
-                documents: true,
-                lastLocation: true,
                 createdAt: true,
                 updatedAt: true,
             },
@@ -75,7 +80,29 @@ router.get('/me', requireAuth(), requireDriver(), async (req: AuthenticatedReque
             });
         }
 
-        res.json({ driver });
+        const activeVehicle = await prisma.tricycle.findFirst({
+            where: { driverId: driver.userId, status: 'active', verificationStatus: 'verified' },
+            select: { id: true },
+        });
+        const ratings = await prisma.rating.findMany({
+            where: { driverId: driver.userId },
+            orderBy: { createdAt: 'desc' },
+            take: 10,
+            include: {
+                user: { select: { name: true } },
+                ride: { select: { pickup: true, destination: true } },
+            },
+        });
+        const reviews = ratings.map(item => ({
+            id: item.id,
+            rating: item.rating,
+            review: item.review,
+            createdAt: item.createdAt,
+            passengerName: item.user.name,
+            pickup: item.ride.pickup,
+            destination: item.ride.destination,
+        }));
+        res.json({ driver, reviews, vehicleActive: Boolean(activeVehicle) });
     } catch (error) {
         console.error('Get driver profile error:', error);
         res.status(500).json({ error: 'Failed to get driver profile' });
@@ -135,16 +162,31 @@ router.put('/me/verification', requireAuth(), requireDriver(), async (req: Authe
         if (dateOfBirth.getTime() >= Date.now()) return res.status(400).json({ error: 'Date of birth must be in the past.' });
         const name = [firstName, otherNames, lastName].filter(Boolean).join(' ');
         const identityChanged = driver.firstName !== firstName || driver.lastName !== lastName || driver.otherNames !== otherNames || driver.tricycle !== tricycle || driver.operatingState !== operatingState || driver.vehicleMake !== vehicleMake || driver.vehicleModel !== vehicleModel || driver.vehicleColor !== vehicleColor || !driver.dateOfBirth || driver.dateOfBirth.toISOString().slice(0, 10) !== dateOfBirth.toISOString().slice(0, 10);
-        const updated = await prisma.driver.update({
-            where: { id: driver.id },
-            data: { firstName, lastName, otherNames, name, phone, homeAddress, tricycle, vehicleMake, vehicleModel, vehicleColor, dateOfBirth, operatingState, operatingArea, verified: identityChanged ? false : driver.verified, online: identityChanged ? false : driver.online, status: identityChanged ? 'pending' : driver.status, verificationStatus: identityChanged ? 'pending_review' : driver.verificationStatus },
+        const updated = await prisma.$transaction(async tx => {
+            const updatedDriver = await tx.driver.update({
+                where: { id: driver.id },
+                data: { firstName, lastName, otherNames, name, phone, homeAddress, tricycle, vehicleMake, vehicleModel, vehicleColor, dateOfBirth, operatingState, operatingArea, verified: identityChanged ? false : driver.verified, online: identityChanged ? false : driver.online, status: identityChanged ? 'pending' : driver.status, verificationStatus: identityChanged ? 'pending_review' : driver.verificationStatus, vehicleStatus: identityChanged ? 'pending' : driver.vehicleStatus },
+            });
+            const existingTricycle = await tx.tricycle.findFirst({ where: { driverId: driver.userId, status: 'active' }, orderBy: { updatedAt: 'desc' } });
+            if (existingTricycle) {
+                await tx.tricycle.update({
+                    where: { id: existingTricycle.id },
+                    data: { plateNumber: tricycle, make: vehicleMake, model: vehicleModel, color: vehicleColor, verificationStatus: identityChanged ? 'pending' : existingTricycle.verificationStatus },
+                });
+            } else {
+                await tx.tricycle.create({
+                    data: { driverId: driver.userId, plateNumber: tricycle, make: vehicleMake, model: vehicleModel, color: vehicleColor, verificationStatus: 'pending' },
+                });
+            }
+            return updatedDriver;
         });
         if (identityChanged) {
             await prisma.driverVerificationDocument.updateMany({ where: { driverId: driver.id }, data: { status: 'needs_review', verifiedAt: null, reviewedAt: null, reviewedById: null, reviewReason: 'Driver profile changed; recheck this document against the updated details.' } });
         }
         await prisma.profile.updateMany({ where: { userId: req.user!.userId }, data: { name, phone } });
         res.json({ driver: updated, message: 'Profile saved. Submit the required documents to continue.' });
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.code === 'P2002') return res.status(409).json({ error: 'That tricycle registration number is already assigned to another vehicle.' });
         console.error('Driver verification profile save error:', error);
         res.status(500).json({ error: 'Could not save driver verification profile' });
     }
@@ -308,8 +350,20 @@ router.put('/me', requireAuth(), requireDriver(), async (req: AuthenticatedReque
         }
 
         if (typeof online === 'boolean') {
-            if (online && (!driver.verified || driver.verificationStatus !== 'verified')) {
+            if (online && await getServiceStatus() === 'paused') {
+                return res.status(503).json({ error: 'Tridash has paused ride operations. Drivers cannot go online until service resumes.' });
+            }
+            if (online && (!driver.verified || driver.verificationStatus !== 'verified' || driver.status !== 'active')) {
                 return res.status(403).json({ error: 'Complete and pass driver verification before going online.' });
+            }
+            if (online) {
+                const activeVehicle = await prisma.tricycle.findFirst({
+                    where: { driverId: driver.userId, status: 'active', verificationStatus: 'verified' },
+                    select: { id: true },
+                });
+                if (!activeVehicle) {
+                    return res.status(403).json({ error: 'An active, verified tricycle must be registered before you can go online.' });
+                }
             }
             updateData.online = online;
             if (!online) {
@@ -404,7 +458,7 @@ router.put('/me/payout-account', requireAuth(), requireDriver(), async (req: Aut
                     business_name: businessName,
                     bank_code: bankCode,
                     account_number: accountNumber,
-                    percentage_charge: getCommissionPercent(),
+                    percentage_charge: await getCommissionPercent(),
                 }),
             });
             const data = await response.json() as any;

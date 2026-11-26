@@ -49,9 +49,11 @@ export function requireAuth() {
                 });
             }
 
-            if ((user as any).status === 'suspended') {
+            if ((user as any).status !== 'active') {
                 return res.status(403).json({
-                    error: 'Your Tridash account is suspended. Contact an administrator for assistance.'
+                    error: (user as any).status === 'suspended'
+                        ? 'Your Tridash account is suspended. Contact an administrator for assistance.'
+                        : 'Your Tridash account is inactive. Contact an administrator for assistance.'
                 });
             }
 

@@ -53,8 +53,18 @@ class APIClient {
         });
     }
 
-    async delete<T = any>(endpoint: string): Promise<{ data: T }> {
-        return this.request<T>(endpoint, { method: 'DELETE' });
+    async patch<T = any>(endpoint: string, body?: any): Promise<{ data: T }> {
+        return this.request<T>(endpoint, {
+            method: 'PATCH',
+            body: body ? JSON.stringify(body) : undefined,
+        });
+    }
+
+    async delete<T = any>(endpoint: string, body?: any): Promise<{ data: T }> {
+        return this.request<T>(endpoint, {
+            method: 'DELETE',
+            body: body ? JSON.stringify(body) : undefined,
+        });
     }
 }
 

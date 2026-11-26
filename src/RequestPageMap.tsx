@@ -10,6 +10,7 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
     const [destinationCoords, setDestinationCoords] = useState<GeoPoint | null>(null);
     const [route, setRoute] = useState<RouteData | null>(null);
     const [fare, setFare] = useState(2000);
+    const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Paystack'>('Cash');
     const [busy, setBusy] = useState(false);
     const [locating, setLocating] = useState(false);
     const [gpsError, setGpsError] = useState('');
@@ -112,7 +113,7 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
                 const response = await api.get('/api/route?fromLat=' + pickupCoords.lat + '&fromLng=' + pickupCoords.lng + '&toLat=' + point.lat + '&toLng=' + point.lng);
                 const nextRoute = response.data?.route || null;
                 setRoute(nextRoute);
-                if (nextRoute?.distanceMeters) setFare(Math.max(800, 500 + Math.round((nextRoute.distanceMeters / 1000) * 250)));
+                if (nextRoute?.estimatedFare) setFare(nextRoute.estimatedFare);
             }
             notify('Destination found and route loaded.');
         } catch (error: any) {
@@ -138,7 +139,7 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
                 name: profile.name,
                 phone: ridePhone.trim(),
                 bookedForSelf: true
-            });
+            }, paymentMethod);
             setConfirmOpen(false);
         } finally {
             setSubmitting(false);
@@ -174,12 +175,13 @@ export default function RequestPageMap({ requestRide, setTab, notify, profile }:
             </div>
             <div className="booking-summary">
                 <div><span>ESTIMATED FARE</span><strong>₦{fare.toLocaleString()}</strong></div>
-                <div><span>PAYMENT</span><strong>Online · Paystack</strong></div>
+                <div><span>PAYMENT</span><strong>{paymentMethod === 'Cash' ? 'Cash to driver' : 'Online · Paystack'}</strong></div>
                 <div><span>ROUTE</span><strong>{route ? (route.distanceMeters / 1000).toFixed(1) + ' km · ' + Math.max(1, Math.round(route.durationSeconds / 60)) + ' min' : 'Find a route first'}</strong></div>
             </div>
-            <p className="hint">Your contact number is used for this ride so the driver can reach you when needed. Online payment is handled through Paystack after the trip is completed.</p>
+            <div className="form-card payment-choice-card"><strong>Choose how to pay</strong><label><input type="radio" name="paymentMethod" value="Cash" checked={paymentMethod === 'Cash'} onChange={() => setPaymentMethod('Cash')} /> Cash — pay the driver directly after the trip</label><label><input type="radio" name="paymentMethod" value="Paystack" checked={paymentMethod === 'Paystack'} onChange={() => setPaymentMethod('Paystack')} /> Pay online with Paystack after the trip</label></div>
+            <p className="hint">Cash payments are confirmed by the driver after collection. Paystack payments are verified by Tridash before being marked paid.</p>
             <button className="primary-button full" disabled={!pickupCoords || !destinationCoords || busy || submitting} aria-busy={submitting} onClick={() => setConfirmOpen(true)}>{submitting ? 'Requesting your ride…' : 'Review and request ride'} <ShieldCheck size={17} /></button>
-            {confirmOpen && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setConfirmOpen(false); }}><div ref={confirmDialogRef} className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="request-confirm-title" aria-describedby="request-confirm-description"><div className="eyebrow">CONFIRM RIDE</div><h3 id="request-confirm-title">Ready to request?</h3><p id="request-confirm-description">{pickup} → {destination} · ₦{fare.toLocaleString()} estimated fare</p><div className="confirm-contact"><span>Contact</span><strong>{ridePhone}</strong></div><div className="confirm-actions"><button type="button" className="secondary-button" onClick={() => setConfirmOpen(false)}>Review again</button><button ref={confirmRequestButtonRef} type="button" className="primary-button" disabled={submitting} aria-busy={submitting} onClick={confirmRide}>{submitting ? 'Requesting…' : 'Request ride'}</button></div></div></div>}
+            {confirmOpen && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setConfirmOpen(false); }}><div ref={confirmDialogRef} className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="request-confirm-title" aria-describedby="request-confirm-description"><div className="eyebrow">CONFIRM RIDE</div><h3 id="request-confirm-title">Ready to request?</h3><p id="request-confirm-description">{pickup} → {destination} · ₦{fare.toLocaleString()} estimated fare · {paymentMethod === 'Cash' ? 'Cash' : 'Paystack'}</p><div className="confirm-contact"><span>Contact</span><strong>{ridePhone}</strong></div><div className="confirm-actions"><button type="button" className="secondary-button" onClick={() => setConfirmOpen(false)}>Review again</button><button ref={confirmRequestButtonRef} type="button" className="primary-button" disabled={submitting} aria-busy={submitting} onClick={confirmRide}>{submitting ? 'Requesting…' : 'Request ride'}</button></div></div></div>}
         </div>
     );
 }

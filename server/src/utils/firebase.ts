@@ -1,5 +1,6 @@
 import { initializeApp, cert, App } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getMessaging } from 'firebase-admin/messaging';
 
 let firebaseApp: App | null = null;
 
@@ -43,3 +44,8 @@ export function getFirebaseAuth() {
 }
 
 export default { initializeFirebase, getFirebaseAuth };
+
+export function getFirebaseMessaging() {
+    if (!firebaseApp) initializeFirebase();
+    return firebaseApp ? getMessaging(firebaseApp) : null;
+}

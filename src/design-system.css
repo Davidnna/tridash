@@ -4327,3 +4327,162 @@ button {
         margin-left: 27px;
     }
 }
+
+/* Requirements completion: vehicle register and editable platform settings. */
+.admin-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+.admin-report-form > label,
+.admin-form-grid label {
+    display: grid;
+    gap: 6px;
+    color: var(--text, #0B1220);
+    font-size: 12px;
+    font-weight: 700;
+}
+.admin-report-form input,
+.admin-report-form select,
+.admin-report-form textarea,
+.admin-settings-list input {
+    width: 100%;
+    min-width: 0;
+    padding: 11px 12px;
+    border: 1px solid var(--border, #D3E8DA);
+    border-radius: 10px;
+    background: #FFFFFF;
+    color: var(--text, #0B1220);
+    font: inherit;
+}
+.admin-report-form {
+    display: grid;
+    gap: 12px;
+}
+.admin-report-form .primary-button {
+    justify-self: start;
+}
+.admin-settings-list .settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+.admin-settings-list .settings-row > div {
+    display: grid;
+    flex: 1;
+    gap: 7px;
+    min-width: 0;
+}
+.admin-settings-list .settings-row input {
+    max-width: 460px;
+}
+.admin-incident-row select,
+.admin-incident-row input {
+    max-width: 190px;
+    min-width: 130px;
+    padding: 8px 10px;
+    border: 1px solid var(--border, #D3E8DA);
+    border-radius: 9px;
+    background: #FFFFFF;
+    color: var(--text, #0B1220);
+    font: inherit;
+    font-size: 11px;
+}
+.admin-incident-row small {
+    display: block;
+    margin-top: 5px;
+    color: var(--muted, #64748B);
+}
+@media (max-width: 700px) {
+    .admin-form-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .admin-settings-list .settings-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+    .admin-settings-list .settings-row input {
+        max-width: none;
+    }
+    .admin-incident-row select,
+    .admin-incident-row input {
+        max-width: none;
+        width: 100%;
+    }
+}
+
+/* Payment choice and feedback components */
+.payment-choice-card {
+    display: grid;
+    gap: 12px;
+}
+
+.payment-choice-card > strong {
+    color: var(--text, #0B1220);
+}
+
+.payment-choice-card label {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    color: var(--text, #0B1220);
+    font-size: 14px;
+}
+
+.payment-choice-card input[type="radio"] {
+    flex: 0 0 auto;
+    margin-top: 3px;
+    accent-color: var(--signal-green, #1E8E5A);
+}
+
+.passenger-available-drivers .driver-card {
+    margin-top: 10px;
+}
+
+.driver-reviews-panel {
+    display: grid;
+    gap: 12px;
+}
+
+.driver-review-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border, #D3E8DA);
+}
+
+.driver-review-row:last-child {
+    border-bottom: 0;
+}
+
+.driver-review-row > div {
+    display: grid;
+    gap: 2px;
+}
+
+.driver-review-row > div span,
+.driver-review-row > small {
+    color: var(--muted, #64748B);
+    font-size: 12px;
+}
+
+.driver-review-row > b {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #B7791F;
+    font-size: 13px;
+}
+
+.driver-review-row > p {
+    grid-column: 1 / -1;
+    margin: 2px 0;
+    color: var(--text, #0B1220);
+    font-size: 13px;
+}
+
+.driver-review-row > small {
+    grid-column: 1 / -1;
+}

@@ -18,7 +18,7 @@ model User {
     role          String   // 'passenger', 'driver', 'admin'
     emailVerified Boolean  @default(false)
     isSuperAdmin  Boolean  @default(false)
-    status        String   @default("active") // 'active', 'suspended'
+    status        String   @default("active") // active, suspended, inactive
     createdAt     DateTime @default(now())
     updatedAt     DateTime @updatedAt
 
@@ -30,6 +30,10 @@ model User {
     ratings       Rating[]
     notifications Notification[]
     incidents     Incident[]
+    reportedIncidents Incident[] @relation("ReportedIncidents")
+    assignedIncidents Incident[] @relation("IncidentAssignee")
+    incidentActivities IncidentActivity[] @relation("IncidentActivityActor")
+    pushTokens    PushToken[]
     payments      Payment[]
 
     @@index([email])
@@ -88,7 +92,7 @@ model Driver {
     ratingCount    Int      @default(0)
     verified       Boolean  @default(false)
     online         Boolean  @default(false)
-    status         String   @default("pending") // 'pending', 'active', 'suspended'
+    status         String   @default("pending") // pending, active, suspended, inactive
     documents      String[]
     // Paystack payout details. payoutBankCode is the NIP bank code, used with
     // payoutAccountNumber to create a Paystack subaccount for split payments.
@@ -106,6 +110,7 @@ model Driver {
     ratings Rating[]
     incidents Incident[]
     verificationDocuments DriverVerificationDocument[]
+    tricycles Tricycle[]
 
     @@index([userId])
     @@index([online])
@@ -163,12 +168,14 @@ model Ride {
     status              String   @default("Requested") // 'Requested', 'Accepted', 'In Progress', 'Completed', 'Cancelled'
     amount              Int
     paymentStatus       String   @default("Pending") // 'Pending', 'Paid'
-    paymentMethod       String   @default("Paystack")
+    paymentMethod       String   @default("Cash")
     paymentReference    String?
     rating              Int?
     rejectedByDriverIds String[] @default([])
     requestedAt         DateTime @default(now())
     acceptedAt          DateTime?
+    startedAt           DateTime?
+    completedAt         DateTime?
     cancelledAt         DateTime?
     lastRejectedAt      DateTime?
     createdAt           DateTime @default(now())
@@ -247,19 +254,61 @@ model Incident {
     id        String   @id @default(cuid())
     rideId    String?
     userId    String
+    reportedUserId String?
     driverId  String?
-    type      String   // 'SOS', 'complaint', 'admin-report'
+    type      String   // SOS, complaint, driver-report, admin-report
+    category  String   @default("other")
     severity  String   @default("normal") // 'normal', 'high'
     message   String
+    status    String   @default("open") // open, under_review, resolved, closed
+    assignedToId String?
+    resolution String? @db.Text
+    resolvedAt DateTime?
+    updatedAt DateTime @updatedAt
     createdAt DateTime @default(now())
 
     ride   Ride?   @relation(fields: [rideId], references: [id], onDelete: SetNull)
     user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    reportedUser User? @relation("ReportedIncidents", fields: [reportedUserId], references: [id], onDelete: SetNull)
+    assignedTo User? @relation("IncidentAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
     driver Driver? @relation(fields: [driverId], references: [userId], onDelete: SetNull)
+    activities IncidentActivity[]
 
     @@index([userId])
+    @@index([reportedUserId])
     @@index([type])
     @@index([severity])
+}
+
+
+model IncidentActivity {
+    id             String   @id @default(cuid())
+    incidentId     String
+    actorId        String
+    action         String
+    previousStatus String?
+    newStatus      String?
+    note           String?  @db.Text
+    createdAt      DateTime @default(now())
+
+    incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+    actor    User     @relation("IncidentActivityActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+    @@index([incidentId, createdAt])
+    @@index([actorId])
+}
+
+model PushToken {
+    id        String   @id @default(cuid())
+    userId    String
+    token     String   @unique
+    platform  String   @default("web")
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
 }
 
 model TripShare {
@@ -284,4 +333,32 @@ model EntitySubscription {
 
     @@index([entityType, entityId])
     @@index([connectionId])
+}
+
+
+model Tricycle {
+    id                  String   @id @default(cuid())
+    driverId            String
+    plateNumber         String   @unique
+    make                String
+    model               String
+    color               String
+    registrationDetails String   @default("") @db.Text
+    verificationStatus  String   @default("pending")
+    status              String   @default("active") // active, suspended, inactive
+    createdAt           DateTime @default(now())
+    updatedAt           DateTime @updatedAt
+
+    driver Driver @relation(fields: [driverId], references: [userId], onDelete: Cascade)
+
+    @@index([driverId])
+    @@index([verificationStatus])
+    @@index([status])
+}
+
+model PlatformSetting {
+    key       String   @id
+    value     Json
+    updatedBy String?
+    updatedAt DateTime @updatedAt
 }

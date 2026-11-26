@@ -4,6 +4,39 @@ import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 
+
+// Register a Firebase Cloud Messaging token for this authenticated account.
+router.post('/device-token', requireAuth(), async (req: AuthenticatedRequest, res) => {
+    try {
+        const token = String(req.body?.token || '').trim();
+        const platform = String(req.body?.platform || 'web').trim().slice(0, 20);
+        if (token.length < 40 || token.length > 4096) {
+            return res.status(400).json({ error: 'A valid push notification token is required' });
+        }
+        const saved = await prisma.pushToken.upsert({
+            where: { token },
+            create: { userId: req.user!.userId, token, platform },
+            update: { userId: req.user!.userId, platform },
+        });
+        res.status(201).json({ registered: true, id: saved.id });
+    } catch (error) {
+        console.error('Register push token error:', error);
+        res.status(500).json({ error: 'Could not register push notifications' });
+    }
+});
+
+router.delete('/device-token', requireAuth(), async (req: AuthenticatedRequest, res) => {
+    try {
+        const token = String(req.body?.token || '').trim();
+        if (!token) return res.status(400).json({ error: 'Push token is required' });
+        const result = await prisma.pushToken.deleteMany({ where: { userId: req.user!.userId, token } });
+        res.json({ removed: result.count > 0 });
+    } catch (error) {
+        console.error('Remove push token error:', error);
+        res.status(500).json({ error: 'Could not remove push notification registration' });
+    }
+});
+
 // Get notifications for current user
 router.get('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
     try {

@@ -4,7 +4,6 @@
 // app reads keeps `import.meta.env.VITE_*` typed instead of `any`.
 interface ImportMetaEnv {
     readonly VITE_API_URL?: string;
-    readonly VITE_MAPBOX_TOKEN?: string;
     readonly VITE_FIREBASE_API_KEY?: string;
     readonly VITE_FIREBASE_AUTH_DOMAIN?: string;
     readonly VITE_FIREBASE_PROJECT_ID?: string;
@@ -15,4 +14,7 @@ interface ImportMetaEnv {
 
 interface ImportMeta {
     readonly env: ImportMetaEnv;
+}
+interface ImportMetaEnv {
+    readonly VITE_FIREBASE_VAPID_KEY?: string;
 }

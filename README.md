@@ -7,10 +7,10 @@ The project contains a responsive React web application and an Express API with 
 ## Product areas
 
 - **Public website:** Home, About, How it works, Safety, Become a driver, FAQs, Contact, Privacy and Terms.
-- **Passenger workspace:** Profile management, ride requests, trip status and history, driver and vehicle details, ratings, reports and safety tools.
-- **Driver workspace:** Driver and vehicle onboarding, verification documents, availability, ride requests, trip management, trip history and payout account details.
+- **Passenger workspace:** Profile management, ride requests, available and assigned driver information, trip status and history, ratings, reports and safety tools.
+- **Driver workspace:** Driver and vehicle onboarding, verification documents, availability, ride requests, trip management, trip history, passenger reviews, incident reporting and optional payout account details.
 - **Administrator workspace:** Overview statistics, user and driver management, document review, ride monitoring, incident reporting, payment records and platform settings.
-- **Shared services:** Firebase Authentication, API sessions, PostgreSQL persistence, Mapbox maps and routes, Socket.IO updates and Paystack payments.
+- **Shared services:** Firebase Authentication, API sessions, PostgreSQL persistence, Mapbox maps and routes, Socket.IO updates, Firebase browser push, optional Twilio emergency SMS, cash fare records and Paystack payments.
 
 ## Technology
 
@@ -22,7 +22,7 @@ The project contains a responsive React web application and an Express API with 
 | Backend | Node.js, Express, Socket.IO, TypeScript |
 | Database | PostgreSQL, Prisma |
 | Authentication | Firebase Authentication and backend session handling |
-| Payments | Paystack |
+| Payments | Cash fare recording and Paystack online payment |
 
 ## Project structure
 
@@ -53,6 +53,8 @@ tridash-master/
     README.md
 ```
 
+The fare formula is `max(minimum fare, base fare + (road distance in km × fare per km))`. The backend recalculates the route and fare at ride creation; the amount sent by the browser is not trusted.
+
 The frontend uses shared design tokens and reusable styles for the public site and authenticated workspaces. The interface follows the original Tridash prototype's visual language: Space Grotesk headings, Inter interface text, JetBrains Mono metadata, deep green primary surfaces, signal green, amber actions, pale-green backgrounds, white cards and rounded controls.
 
 ## Requirements
@@ -64,7 +66,9 @@ Install the following before running the project:
 - PostgreSQL database
 - Firebase project configured for Authentication
 - Mapbox access token
-- Paystack test or live credentials, depending on the environment
+- Paystack test or live credentials when online payment and driver payout splitting are enabled
+- Optional Twilio credentials for emergency-contact SMS
+- Firebase Web Push VAPID key for browser push notifications
 
 ## Run locally
 
@@ -72,11 +76,19 @@ Run the backend and frontend in separate terminals from the project root.
 
 ### 1. Configure the backend environment
 
-Create the local environment file:
+Create the local backend environment file:
 
 ```bash
 cp server/.env.example server/.env
 ```
+
+Create the local frontend environment file at the project root when you need to override the defaults:
+
+```bash
+cp .env.example .env
+```
+
+`node_modules/`, `.git/`, local `.env` files and generated build folders are intentionally excluded from the source ZIP. Install dependencies with `npm ci` in the frontend root and in `server/`.
 
 Set the database connection and service configuration in `server/.env`. At minimum, configure:
 
@@ -92,6 +104,8 @@ Set the database connection and service configuration in `server/.env`. At minim
 - `MAPBOX_PUBLIC_TOKEN`
 - `PAYSTACK_SECRET_KEY`
 - `SUPER_ADMIN_EMAIL`
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM_NUMBER` (optional; needed for automatic emergency-contact SMS)
+- `PUBLIC_APP_URL` (optional; used to construct trip-share and emergency links)
 
 For local development, `FRONTEND_URL` should normally be `http://localhost:5173`. Keep provider secrets and private keys in the backend environment only.
 
@@ -165,6 +179,7 @@ Test bank listing, account resolution, subaccount creation or update and payment
 
 The frontend recognises these optional environment variables:
 
+- `VITE_FIREBASE_VAPID_KEY` — Firebase Cloud Messaging Web Push certificate key; required to register browser push tokens.
 - `VITE_API_URL` — public backend API origin.
 - `VITE_TRIDASH_DEPLOYMENT` — deployment mode (`combined`, `public` or the configured app mode).
 - `VITE_TRIDASH_APP_URL` — authenticated application origin used by public-site sign-in and registration links.
@@ -176,7 +191,7 @@ The public and application production hosts are also distinguished by hostname i
 A split deployment can host the frontend on a static web host, the backend on a Node-compatible service and PostgreSQL on a managed database provider.
 
 1. Configure the production database and backend environment variables.
-2. Run `npx prisma generate` and `npx prisma migrate deploy` in the backend deployment process.
+2. Back up the production database, then run `npx prisma generate` and `npx prisma migrate deploy` in the backend deployment process. Review the pending SQL migrations before applying them to production.
 3. Build the frontend with `npm run build` and publish the `dist/` directory.
 4. Set `VITE_API_URL` to the backend origin and configure the frontend origin in the backend's `FRONTEND_URL`.
 5. Configure Firebase authorized domains, Paystack callback URLs, Mapbox token restrictions and HTTPS/WSS.
@@ -185,9 +200,10 @@ A split deployment can host the frontend on a static web host, the backend on a 
 
 ## Quality checks
 
-Run the frontend production build and backend TypeScript build before deployment:
+Run the source-contract checks, frontend production build and backend TypeScript build before deployment:
 
 ```bash
+npm test
 npm run build
 ```
 
@@ -197,3 +213,44 @@ npm run build
 ```
 
 The project uses four-space indentation. Keep the code organised into reusable components, API modules, backend routes, services and utilities. This repository's project documentation is maintained in this `README.md` file.
+
+## Requirements completion updates
+
+The requirements-completion work adds the following backend capabilities:
+
+- An independent `Tricycle` register, with plate-number uniqueness, driver assignment, vehicle verification status and active/suspended/inactive status. Driver onboarding and administrator approval synchronise the driver vehicle details with this register.
+- A `PlatformSetting` store for administrator-managed platform name, support contacts, service area, commission, base fare, per-kilometre fare, minimum fare and service pause configuration.
+- Incident workflow states (`open`, `under_review`, `resolved`, `closed`), reporter and reported-account references, administrator assignment, resolution notes, timestamps and an append-only activity history.
+- Passenger incident reports for active or historical trips and driver incident reports for an assigned trip or a driver-level issue.
+- In-app administrator alerts and Firebase browser push delivery for ride and safety events when both the Firebase Web Push VAPID key and backend Firebase Admin credentials are configured.
+- Optional Twilio SMS delivery for emergency contacts when the Twilio credentials are configured. SMS delivery results are returned to the caller; the application does not claim delivery when the provider is absent or rejects the message.
+- Persisted ride `startedAt` and `completedAt` timestamps.
+- Server-calculated ride fares based on Mapbox road distance and administrator-configured base, per-kilometre and minimum fares. Client-supplied fare values are ignored.
+- Cash ride payment recording, with driver confirmation after cash collection; Paystack remains optional and is selected explicitly by the passenger.
+- Driver-facing recent passenger reviews and incident reporting, plus passenger-facing verified online driver availability.
+- Account `inactive` status enforcement in authenticated API requests, with driver availability disabled when a driver account is suspended or deactivated.
+- Administrator API and dashboard controls for tricycle registration, vehicle status, incident resolution and editable platform settings.
+
+### Apply the requirements-completion migration
+
+After configuring the backend environment and confirming a current database backup, run from `server/`:
+
+```bash
+npx prisma generate
+npx prisma migrate deploy
+npm run build
+```
+
+The migrations create the tricycle and platform-setting tables, add incident workflow and audit fields, create push-token storage, add trip lifecycle timestamps, and backfill the independent tricycle register from existing driver vehicle details. Existing driver and ride records are retained.
+
+### Operational integration boundaries
+
+The SOS workflow records the event, creates an expiring trip-share link and creates administrator in-app notifications. If Twilio is configured, Tridash attempts to send the emergency contact an SMS containing the trip link. The API returns whether the SMS provider accepted the message. This is not an emergency-services dispatch connection.
+
+The trip-sharing workflow also creates a time-limited public tracking link and attempts to send it to the signed-in user's saved emergency contact by SMS when Twilio is configured. A missing or failed SMS configuration does not prevent the link from being shared manually.
+
+Browser push requires `VITE_FIREBASE_VAPID_KEY`, a Firebase Web Push certificate, the Firebase Admin service account on the backend and a deployed HTTPS origin. Without these settings, in-app notifications continue to work.
+
+Driver matching currently notifies verified online drivers across the platform; it is not yet distance- or service-area-filtered. The available-driver list is labelled accordingly. Paystack is optional for a ride; a driver without a verified Paystack subaccount can accept cash rides but cannot accept a Paystack ride requiring split settlement.
+
+This repository contains the responsive web application and backend. It does not contain separately buildable Android/iOS native applications. Those require a dedicated React Native/Expo client and platform-specific build, signing and device testing before they can be considered deliverables.

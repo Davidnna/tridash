@@ -398,5 +398,149 @@
             "Repeat navigation at a 390px mobile viewport"
         ],
         "expected": "All administrator sections load through their existing routes, metrics are calculated from returned records, search and ride filters work, protected actions retain confirmation, and mobile section navigation remains accessible."
+    },
+    {
+        "name": "Driver submits an incident report during an assigned trip",
+        "viewport": "mobile",
+        "covers": [
+            "driver incident reporting",
+            "assigned ride authorization",
+            "administrator notification"
+        ],
+        "description": "Confirms a driver can report a safety, passenger, vehicle or route issue against a ride assigned to that driver.",
+        "steps": [
+            "Sign in as the assigned driver during an active trip",
+            "Open the active trip report action",
+            "Submit a report with at least five characters",
+            "Inspect the incident record and administrator notification"
+        ],
+        "expected": "The report is saved against the correct trip and driver, and active administrators receive an in-app notification."
+    },
+    {
+        "name": "Passenger reports a completed historical trip",
+        "viewport": "mobile",
+        "covers": [
+            "historical trip reporting",
+            "passenger ownership authorization"
+        ],
+        "description": "Confirms a passenger can report a problem after a trip has ended.",
+        "steps": [
+            "Sign in as the passenger who owns a completed trip",
+            "Open Safety and choose Report an issue",
+            "Select the historical trip and submit a report",
+            "Try to submit a report against another passenger's trip through the API"
+        ],
+        "expected": "The owned trip report is recorded; reporting another passenger's trip is rejected."
+    },
+    {
+        "name": "Administrator investigates and resolves incidents",
+        "viewport": "desktop",
+        "covers": [
+            "incident status transitions",
+            "resolution note validation",
+            "administrator assignment",
+            "resolution timestamp"
+        ],
+        "description": "Verifies the complete incident review lifecycle.",
+        "steps": [
+            "Open Admin > Reports",
+            "Move an open incident to Under review",
+            "Attempt to resolve it without a resolution note",
+            "Add a resolution note and mark it Resolved",
+            "Inspect the incident record"
+        ],
+        "expected": "Valid statuses are persisted, resolution requires a meaningful note, administrator assignment and resolvedAt are recorded, and the incident disappears from the open count."
+    },
+    {
+        "name": "Administrator registers and manages tricycles",
+        "viewport": "desktop",
+        "covers": [
+            "independent vehicle register",
+            "plate uniqueness",
+            "driver relationship",
+            "vehicle status",
+            "verification status",
+            "legacy vehicle backfill"
+        ],
+        "description": "Verifies independent vehicle records and administrator controls.",
+        "steps": [
+            "Apply the new Prisma migration to a database containing existing driver vehicle details",
+            "Open Admin > Tricycles and confirm legacy records are backfilled",
+            "Register a tricycle for an existing driver",
+            "Attempt to register a duplicate plate number",
+            "Change vehicle verification and operating status"
+        ],
+        "expected": "Existing driver and ride data remains intact, vehicle records are linked to drivers, duplicate plates are rejected, and status changes persist."
+    },
+    {
+        "name": "Administrator updates persisted platform settings",
+        "viewport": "desktop",
+        "covers": [
+            "settings persistence",
+            "administrator authorization",
+            "commission range validation"
+        ],
+        "description": "Checks platform settings are stored server-side and protected.",
+        "steps": [
+            "Open Admin > Settings",
+            "Update the platform name and support contact details",
+            "Set commission to a valid value and save",
+            "Attempt to set commission above 50 percent",
+            "Attempt to update a setting as a non-admin"
+        ],
+        "expected": "Valid values persist and reload; invalid commission values and non-admin updates are rejected."
+    },
+    {
+        "name": "Inactive accounts are denied API access",
+        "viewport": "desktop",
+        "covers": [
+            "account deactivation",
+            "session enforcement",
+            "driver availability shutdown"
+        ],
+        "description": "Ensures deactivation is distinct from suspension and enforced by the authentication middleware.",
+        "steps": [
+            "As an administrator, deactivate a non-superadmin account",
+            "Attempt to call a protected API using that account's existing session",
+            "Deactivate a driver who is online",
+            "Inspect the driver online and status fields",
+            "Reactivate the account"
+        ],
+        "expected": "Inactive accounts receive 403 on protected requests, the driver's availability is disabled, and reactivation restores access without changing account identity."
+    },
+    {
+        "name": "Ride start and completion timestamps persist",
+        "viewport": "desktop",
+        "covers": [
+            "ride lifecycle timestamps",
+            "status transition integrity",
+            "trip record completeness"
+        ],
+        "description": "Verifies trip lifecycle timestamps are persisted rather than generated only in the browser.",
+        "steps": [
+            "Accept a Requested ride as a verified driver",
+            "Start the trip",
+            "Complete the trip",
+            "Fetch the ride record from the API"
+        ],
+        "expected": "acceptedAt, startedAt and completedAt are persisted and correspond to the actual server-side transitions."
+    },
+    {
+        "name": "SOS creates an operations alert without claiming emergency dispatch",
+        "viewport": "mobile",
+        "covers": [
+            "SOS recording",
+            "administrator in-app notification",
+            "emergency contact disclosure",
+            "truthful emergency messaging"
+        ],
+        "description": "Checks that SOS records the event and alerts administrators in-app without claiming that external emergency services or SMS have been contacted.",
+        "steps": [
+            "Add an emergency contact to the passenger profile",
+            "Start an active trip and activate SOS",
+            "Inspect the API response and administrator notifications",
+            "Inspect the passenger confirmation message"
+        ],
+        "expected": "The SOS incident is saved, active administrators receive in-app alerts, the saved contact details are returned to the authenticated passenger, and the UI explicitly states that no automatic SMS or emergency-services dispatch occurred."
     }
 ]

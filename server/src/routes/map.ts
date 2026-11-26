@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
+import { calculateFareFromDistance } from '../services/fare';
 
 const router = Router();
 
@@ -155,11 +156,13 @@ router.get('/route', requireAuth(), async (req, res) => {
             return res.status(404).json({ error: 'No drivable route found' });
         }
 
+        const fare = await calculateFareFromDistance(route.distance);
         res.json({
             route: {
                 distanceMeters: route.distance,
                 durationSeconds: route.duration,
                 geometry: route.geometry,
+                estimatedFare: fare.amount,
             },
         });
     } catch (error) {

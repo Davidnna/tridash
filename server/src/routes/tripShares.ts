@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import prisma from '../utils/database';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
+import { sendSms } from '../services/sms';
 
 const router = Router();
 
@@ -38,12 +39,21 @@ router.post('/', requireAuth(), async (req: AuthenticatedRequest, res) => {
             },
         });
 
+        const sharingProfile = await prisma.profile.findUnique({ where: { userId: req.user!.userId } });
+        const emergencyContact = sharingProfile?.emergencyPhone?.trim()
+            ? { name: sharingProfile.emergencyName, phone: sharingProfile.emergencyPhone }
+            : null;
+        const publicBase = (process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim().replace(/\/$/, '');
+        const shareUrl = `${publicBase}/shared-trip/${token}`;
+        const sms = emergencyContact ? await sendSms(emergencyContact.phone, `Tridash trip share: ${ride.pickup} to ${ride.destination}. Follow the trip here: ${shareUrl}`) : null;
         res.status(201).json({
+            emergencyContact,
+            emergencyContactSms: sms,
             share: {
                 ...tripShare,
                 expiresAt: Number(tripShare.expiresAt),
             },
-            url: '/shared-trip/' + token,
+            url: shareUrl,
         });
     } catch (error) {
         console.error('Create trip share error:', error);
@@ -100,7 +110,7 @@ router.get('/:token', async (req, res) => {
             driver: driver ? {
                 name: driver.name,
                 tricycle: driver.tricycle,
-                lastLocation: driver.lastLocation,
+                lastLocation: ride.status === 'In Progress' ? driver.lastLocation : null,
             } : null,
         });
     } catch (error) {

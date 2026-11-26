@@ -6,7 +6,7 @@ import { digestHex, makeSessionToken, setCookieHeader, clearCookieHeader, getCoo
 
 const router = Router();
 
-const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'davedozie1@gmail.com';
+const SUPER_ADMIN_EMAIL = String(process.env.SUPER_ADMIN_EMAIL || '').trim().toLowerCase();
 
 // Firebase session creation
 router.post('/firebase-session', async (req, res) => {
@@ -49,7 +49,7 @@ router.post('/firebase-session', async (req, res) => {
                 return res.status(409).json({ error: 'This email is already linked to another Tridash identity' });
             }
 
-            const isSuperAdmin = email === SUPER_ADMIN_EMAIL;
+            const isSuperAdmin = Boolean(SUPER_ADMIN_EMAIL) && email.toLowerCase() === SUPER_ADMIN_EMAIL;
             const userRole = isSuperAdmin ? 'admin' : requestedRole;
 
             const userData = {
